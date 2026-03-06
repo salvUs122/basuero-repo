@@ -1,0 +1,35 @@
+# ═══════════════════════════════════════════
+#  Laravel (basurero/)
+# ═══════════════════════════════════════════
+basurero/vendor/
+basurero/node_modules/
+basurero/public/build/
+basurero/public/hot
+basurero/public/storage
+basurero/storage/*.key
+basurero/.env
+basurero/.phpunit.cache/
+
+# ═══════════════════════════════════════════
+#  Flutter (conductor_app/)
+# ═══════════════════════════════════════════
+conductor_app/.dart_tool/
+conductor_app/.flutter-plugins-dependencies
+conductor_app/build/
+conductor_app/.pub-cache/
+conductor_app/.pub/
+conductor_app/android/app/debug/
+conductor_app/android/app/profile/
+conductor_app/android/app/release/
+conductor_app/android/local.properties
+conductor_app/ios/Flutter/.last_build_id
+
+# ═══════════════════════════════════════════
+#  IDE / OS
+# ═══════════════════════════════════════════
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+*.log
