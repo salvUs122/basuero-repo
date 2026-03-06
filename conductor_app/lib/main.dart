@@ -165,14 +165,20 @@ class _LoginScreenState extends State<LoginScreen>
   Future<void> _login() async {
     setState(() => _isLoading = true);
     try {
+      debugPrint('🔗 Login URL: ${Config.baseUrl}/login');
       final response = await http.post(
         Uri.parse('${Config.baseUrl}/login'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
         body: jsonEncode({
           'email':    _emailController.text.trim(),
           'password': _passwordController.text,
         }),
       ).timeout(const Duration(seconds: Config.timeout));
+
+      debugPrint('📡 Respuesta login: ${response.statusCode} - ${response.body}');
 
       final data = jsonDecode(response.body);
 

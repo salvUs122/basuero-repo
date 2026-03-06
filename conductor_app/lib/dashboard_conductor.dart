@@ -250,7 +250,6 @@ class _DashboardConductorState extends State<DashboardConductor> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final MapController _mapController = MapController();
   StreamSubscription<Position>? _gpsSubscription;
-  Timer? _timerFallback;
   Position? _currentPosition;
   List<LatLng> _trackPoints = [];
   List<LatLng> _routePoints = [];
@@ -723,7 +722,6 @@ class _DashboardConductorState extends State<DashboardConductor> {
     }
 
     await _gpsSubscription?.cancel();
-    _timerFallback?.cancel();
 
     if (mounted) {
       setState(() => _gpsActivo = true);
@@ -790,7 +788,6 @@ class _DashboardConductorState extends State<DashboardConductor> {
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
         distanceFilter: 10,
-        timeLimit: Duration(seconds: 60), // Timeout más largo para web
       ),
     ).listen(
       (Position position) {
@@ -821,7 +818,6 @@ class _DashboardConductorState extends State<DashboardConductor> {
         }
 
         _enviarPosicion(position);
-        _programarFallback();
       },
       onError: (error) {
         debugPrint('❌ Error en stream GPS: $error');
@@ -830,44 +826,11 @@ class _DashboardConductorState extends State<DashboardConductor> {
         }
       },
     );
-
-    // Timer de quietud (30 s) - envía posición aunque no se mueva
-    _programarFallback();
-  }
-
-  void _programarFallback() {
-    _timerFallback?.cancel();
-    _timerFallback = Timer(const Duration(seconds: 30), () async {
-      if (!mounted || !_gpsActivo) return;
-      try {
-        debugPrint('⏱️ Fallback: obteniendo posición por timer...');
-        final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.medium,
-          timeLimit: const Duration(seconds: 20),
-        );
-        if (!mounted || !_gpsActivo) return;
-        
-        debugPrint('📍 Posición fallback: ${pos.latitude}, ${pos.longitude}');
-        
-        setState(() {
-          _currentPosition = pos;
-          _trackPoints.add(LatLng(pos.latitude, pos.longitude));
-        });
-        
-        _mapController.move(LatLng(pos.latitude, pos.longitude), 16);
-        _enviarPosicion(pos);
-      } catch (e) {
-        debugPrint('⚠️ Fallback falló: $e');
-      }
-      _programarFallback();
-    });
   }
 
   Future<void> _detenerGPS() async {
     await _gpsSubscription?.cancel();
     _gpsSubscription = null;
-    _timerFallback?.cancel();
-    _timerFallback = null;
 
     // Detener el foreground service (quita la notificación)
     await stopGpsService();
@@ -1083,7 +1046,6 @@ class _DashboardConductorState extends State<DashboardConductor> {
   @override
   void dispose() {
     _gpsSubscription?.cancel();
-    _timerFallback?.cancel();
     super.dispose();
   }
 
