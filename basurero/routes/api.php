@@ -17,4 +17,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/conductor/recorrido/finalizar', [App\Http\Controllers\Api\ConductorApiController::class, 'finalizarRecorrido']);
     Route::post('/conductor/gps', [App\Http\Controllers\Api\ConductorApiController::class, 'guardarGps']);
     Route::get('/rutas/{ruta}', [App\Http\Controllers\Api\ConductorApiController::class, 'getRuta']);
+    
+    // Configuraciones del sistema
+    Route::get('/configuraciones', [App\Http\Controllers\Api\ConductorApiController::class, 'getConfiguraciones']);
+    Route::put('/configuraciones', [App\Http\Controllers\Api\ConductorApiController::class, 'updateConfiguracion']);
 });

@@ -47,7 +47,11 @@ void initForegroundTask() {
   );
 }
 
-Future<void> startGpsService() async {
+Future<void> startGpsService({
+  String? ruta,
+  String? camion,
+  String? horaInicio,
+}) async {
   // En web no hay foreground service
   if (kIsWeb) {
     debugPrint('⚠️ startGpsService: Saltando en web');
@@ -56,9 +60,16 @@ Future<void> startGpsService() async {
   
   try {
     if (await FlutterForegroundTask.isRunningService) return;
+    
+    final titulo = 'GeoFlota · ${camion ?? ""}';
+    final partes = <String>[];
+    if (ruta != null) partes.add('Ruta: $ruta');
+    if (horaInicio != null) partes.add('Inicio: $horaInicio');
+    final texto = partes.isNotEmpty ? partes.join(' | ') : 'Compartiendo ubicación';
+    
     await FlutterForegroundTask.startService(
-      notificationTitle: 'GeoFlota',
-      notificationText: 'Compartiendo ubicación en la app',
+      notificationTitle: titulo,
+      notificationText: texto,
       callback: startCallback,
     );
   } catch (e) {

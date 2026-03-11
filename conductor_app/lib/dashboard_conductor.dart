@@ -15,8 +15,6 @@ class RecorridoDrawer extends StatelessWidget {
   final VoidCallback onFinalizar;
   final VoidCallback onToggleGPS;
   final bool gpsActivo;
-  final int puntosEnviados;
-  final Position? currentPosition;
   final String? horaInicio;
 
   const RecorridoDrawer({
@@ -25,8 +23,6 @@ class RecorridoDrawer extends StatelessWidget {
     required this.onFinalizar,
     required this.onToggleGPS,
     required this.gpsActivo,
-    required this.puntosEnviados,
-    this.currentPosition,
     this.horaInicio,
   });
 
@@ -109,22 +105,6 @@ class RecorridoDrawer extends StatelessWidget {
                       label: 'Inicio',
                       value: horaInicio ?? 'N/D',
                     ),
-                    const Divider(),
-                    _buildDrawerItem(
-                      icon: Icons.satellite,
-                      color: Colors.orange,
-                      label: 'Puntos enviados',
-                      value: '$puntosEnviados',
-                    ),
-                    const Divider(),
-                    if (currentPosition != null)
-                      _buildDrawerItem(
-                        icon: Icons.location_on,
-                        color: Colors.red,
-                        label: 'Ubicación',
-                        value:
-                            '${currentPosition!.latitude.toStringAsFixed(4)}, ${currentPosition!.longitude.toStringAsFixed(4)}',
-                      ),
                   ],
                 ),
               ),
@@ -256,6 +236,7 @@ class _DashboardConductorState extends State<DashboardConductor> {
   int _puntosEnviados = 0;
   bool _gpsActivo = false;
   String? _horaInicioRecorrido;
+  bool _mostrandoRecordatorioFin = false;
 
   @override
   void initState() {
@@ -725,12 +706,15 @@ class _DashboardConductorState extends State<DashboardConductor> {
 
     if (mounted) {
       setState(() => _gpsActivo = true);
-      _mostrarSnackbar('📍 GPS activado - Obteniendo ubicación...');
     }
 
     // Arrancar foreground service (notificación persistente + keep-alive)
     try {
-      await startGpsService();
+      await startGpsService(
+        ruta: _recorridoActivo?['ruta'],
+        camion: _recorridoActivo?['camion'],
+        horaInicio: _horaInicioRecorrido,
+      );
       debugPrint('✅ Foreground service iniciado');
     } catch (e) {
       debugPrint('⚠️ Foreground service no disponible (normal en web): $e');
@@ -764,7 +748,6 @@ class _DashboardConductorState extends State<DashboardConductor> {
           LatLng(posicionInicial.latitude, posicionInicial.longitude), 16,
         );
         
-        _mostrarSnackbar('✅ Ubicación: ${posicionInicial.latitude.toStringAsFixed(4)}, ${posicionInicial.longitude.toStringAsFixed(4)}');
       }
       
       // Enviar primera posición al servidor
@@ -811,13 +794,14 @@ class _DashboardConductorState extends State<DashboardConductor> {
           LatLng(position.latitude, position.longitude), 16,
         );
 
-        // Mostrar snackbar solo la primera vez que obtiene ubicación
         if (!obtuvoPosicionInicial) {
           obtuvoPosicionInicial = true;
-          _mostrarSnackbar('✅ GPS conectado: ${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}');
         }
 
         _enviarPosicion(position);
+
+        // Verificar si llegó al final de la ruta
+        _verificarFinDeRuta(position);
       },
       onError: (error) {
         debugPrint('❌ Error en stream GPS: $error');
@@ -891,8 +875,77 @@ class _DashboardConductorState extends State<DashboardConductor> {
     }
   }
 
+  /// Verifica si el conductor llegó cerca del final de la ruta (bandera)
+  /// y muestra un recordatorio para finalizar el recorrido.
+  void _verificarFinDeRuta(Position position) {
+    if (_routePoints.isEmpty || _mostrandoRecordatorioFin) return;
+
+    final finRuta = _routePoints.last;
+    const distanciaUmbral = 80.0; // metros
+
+    final distancia = Geolocator.distanceBetween(
+      position.latitude,
+      position.longitude,
+      finRuta.latitude,
+      finRuta.longitude,
+    );
+
+    if (distancia <= distanciaUmbral) {
+      _mostrandoRecordatorioFin = true;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade100,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.flag_rounded, color: Colors.green.shade700, size: 24),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(child: Text('¡Llegaste al final!')),
+            ],
+          ),
+          content: const Text(
+            'Estás cerca del punto final de la ruta. '
+            '¿Deseas finalizar el recorrido?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                // Permitir que vuelva a mostrarse si se aleja y vuelve
+                Future.delayed(const Duration(minutes: 2), () {
+                  if (mounted) _mostrandoRecordatorioFin = false;
+                });
+              },
+              child: const Text('CONTINUAR'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                _finalizarRecorrido();
+              },
+              icon: const Icon(Icons.stop, size: 18),
+              label: const Text('FINALIZAR'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
   /// Carga los puntos GPS ya guardados en el servidor para restaurar
-  /// la trayectoria visual cuando el conductor recarga la página.
+  /// la trayectoria visual cuando el conductor recargó la página.
   Future<void> _cargarPuntosExistentes(int recorridoId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -1119,8 +1172,6 @@ class _DashboardConductorState extends State<DashboardConductor> {
                 }
               },
               gpsActivo: _gpsActivo,
-              puntosEnviados: _puntosEnviados,
-              currentPosition: _currentPosition,
               horaInicio: _horaInicioRecorrido,
             )
           : null,
@@ -1568,20 +1619,23 @@ class _DashboardConductorState extends State<DashboardConductor> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildMapStat(Icons.satellite_alt,
-                    _puntosEnviados.toString(), 'Puntos GPS',
-                    color: const Color(0xFF1e40af)),
-                _buildMapDivider(),
-                _buildMapStat(
-                  _gpsActivo ? Icons.gps_fixed : Icons.gps_not_fixed,
-                  _gpsActivo ? 'Activo' : 'Pausado',
-                  'Estado GPS',
-                  color: _gpsActivo ? Colors.green : Colors.orange,
+                Expanded(
+                  child: _buildMapStat(Icons.route,
+                      _recorridoActivo?['ruta'] ?? 'N/D', 'Ruta',
+                      color: const Color(0xFF1e40af)),
                 ),
                 _buildMapDivider(),
-                _buildMapStat(Icons.access_time_rounded,
-                    _horaInicioRecorrido ?? '--:--', 'Inicio',
-                    color: Colors.purple),
+                Expanded(
+                  child: _buildMapStat(Icons.local_shipping,
+                      _recorridoActivo?['camion'] ?? 'N/D', 'Camión',
+                      color: Colors.green),
+                ),
+                _buildMapDivider(),
+                Expanded(
+                  child: _buildMapStat(Icons.access_time_rounded,
+                      _horaInicioRecorrido ?? '--:--', 'Inicio',
+                      color: Colors.purple),
+                ),
               ],
             ),
           ),
@@ -1596,7 +1650,11 @@ class _DashboardConductorState extends State<DashboardConductor> {
       children: [
         Icon(icon, color: color, size: 20),
         const SizedBox(height: 3),
-        Text(value, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: color)),
+        Text(value,
+          textAlign: TextAlign.center,
+          overflow: TextOverflow.ellipsis,
+          maxLines: 1,
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: color)),
         Text(label, style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
       ],
     );

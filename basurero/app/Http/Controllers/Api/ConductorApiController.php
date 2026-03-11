@@ -9,6 +9,7 @@ use App\Models\Ruta;
 use App\Models\PuntoRecorrido;
 use App\Models\EventoRecorrido;
 use App\Models\HorarioDia;
+use App\Models\Configuracion;
 use App\Support\Geo;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -58,6 +59,7 @@ class ConductorApiController extends Controller
         $camionId = $request->integer('camion_id');
         $diaHoy = strtolower(now()->locale('es')->dayName);
         $diaHoy = strtr($diaHoy, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u']);
+        $horaActual = now()->format('H:i:s');
 
         $camiones = $user->camionesAsignados()
             ->with('rutas')
@@ -98,6 +100,12 @@ class ConductorApiController extends Controller
                 $programadaHoy = $horarioDia || in_array($diaHoy, $dias);
 
                 if ($programadaHoy) {
+                    // Obtener hora_fin efectiva y filtrar rutas ya finalizadas
+                    $horaFin = $horarioDia?->hora_fin ?? $ruta->pivot->hora_fin;
+                    if ($horaFin && $horaActual > $horaFin) {
+                        continue; // La ruta ya terminó su horario
+                    }
+
                     $rutas->push([
                         'id' => $ruta->id,
                         'nombre' => $ruta->nombre,
@@ -105,7 +113,7 @@ class ConductorApiController extends Controller
                         'camion_placa' => $camion->placa,
                         'horario' => [
                             'inicio' => $horarioDia?->hora_inicio ?? $ruta->pivot->hora_inicio,
-                            'fin' => $horarioDia?->hora_fin ?? $ruta->pivot->hora_fin,
+                            'fin' => $horaFin,
                         ],
                         'tolerancia' => $ruta->tolerancia_metros,
                         'geometria' => json_decode($ruta->geometria_geojson),
@@ -352,6 +360,28 @@ class ConductorApiController extends Controller
         }
 
         try {
+            // Verificar distancia mínima configurable desde el último punto
+            $distanciaMinima = (float) Configuracion::obtener('gps_distancia_minima_metros', '10');
+            $ultimoPunto = PuntoRecorrido::where('recorrido_id', $recorrido->id)
+                ->latest('id')
+                ->first();
+
+            if ($ultimoPunto) {
+                $distDesdeUltimo = Geo::haversine(
+                    (float)$ultimoPunto->lat,
+                    (float)$ultimoPunto->lng,
+                    (float)$request->lat,
+                    (float)$request->lng
+                );
+                if ($distDesdeUltimo < $distanciaMinima) {
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'Punto omitido (distancia insuficiente)',
+                        'distancia' => round($distDesdeUltimo, 1),
+                    ]);
+                }
+            }
+
             PuntoRecorrido::create([
                 'recorrido_id' => $recorrido->id,
                 'lat' => $request->lat,
@@ -434,5 +464,34 @@ class ConductorApiController extends Controller
                 'message' => 'Error guardando punto'
             ], 500);
         }
+    }
+
+    /**
+     * Obtener configuraciones del sistema
+     */
+    public function getConfiguraciones()
+    {
+        $configs = Configuracion::all()->mapWithKeys(fn($c) => [$c->clave => $c->valor]);
+        return response()->json(['success' => true, 'data' => $configs]);
+    }
+
+    /**
+     * Actualizar una configuración (solo admin)
+     */
+    public function updateConfiguracion(Request $request)
+    {
+        $request->validate([
+            'clave' => 'required|string|max:100',
+            'valor' => 'required|string',
+        ]);
+
+        $config = Configuracion::where('clave', $request->clave)->first();
+        if (!$config) {
+            return response()->json(['success' => false, 'message' => 'Configuración no encontrada'], 404);
+        }
+
+        $config->update(['valor' => $request->valor]);
+
+        return response()->json(['success' => true, 'message' => 'Configuración actualizada']);
     }
 }
