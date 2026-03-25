@@ -3,12 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\Recorrido;
+use App\Models\DescargaBotadero;
+use App\Models\PuntoRecorrido;
 
 class RecorridoController extends Controller
 {
     public function show(Recorrido $recorrido)
     {
-        $recorrido->load('ruta');
+        $recorrido->load(['ruta', 'descargas' => fn($q) => $q->orderBy('numero_descarga')]);
         return view('recorridos.show', compact('recorrido'));
     }
 
@@ -17,6 +19,21 @@ class RecorridoController extends Controller
         return $recorrido->puntos()
             ->orderBy('fecha_gps')
             ->get(['lat','lng','fecha_gps']);
+    }
+
+    /**
+     * Obtener puntos de una descarga específica
+     */
+    public function puntosDescarga(Recorrido $recorrido, DescargaBotadero $descarga)
+    {
+        // Verificar que la descarga pertenece al recorrido
+        if ($descarga->recorrido_id !== $recorrido->id) {
+            abort(404);
+        }
+
+        return PuntoRecorrido::where('descarga_id', $descarga->id)
+            ->orderBy('fecha_gps')
+            ->get(['lat', 'lng', 'fecha_gps']);
     }
 
     /**

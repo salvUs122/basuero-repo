@@ -65,6 +65,13 @@
                                             <span class="inline-block w-5 h-1 bg-blue-500 rounded"></span>
                                             Ruta planificada
                                         </span>
+                                        @if($recorrido->descargas && $recorrido->descargas->count() > 0)
+                                        <span class="text-gray-300">|</span>
+                                        <span class="flex items-center gap-1">
+                                            <span class="inline-block w-5 h-0.5 rounded" style="border-bottom: 2px dashed #f97316;"></span>
+                                            Descarga
+                                        </span>
+                                        @endif
                                     </div>
                                     <button id="btn_fullscreen" class="text-sm bg-gray-100 hover:bg-gray-200 px-2 py-1.5 rounded-lg transition-colors" title="Pantalla completa">
                                         <i class="fas fa-expand"></i>
@@ -185,6 +192,60 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Tarjeta de Descargas al Botadero -->
+                    @if($recorrido->descargas && $recorrido->descargas->count() > 0)
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div class="bg-gradient-to-r from-orange-600 to-orange-700 px-5 py-4">
+                            <h3 class="text-white font-semibold flex items-center">
+                                <i class="fas fa-truck-loading mr-2"></i>
+                                Descargas al Botadero ({{ $recorrido->descargas->count() }})
+                            </h3>
+                        </div>
+                        <div class="p-5 space-y-3">
+                            @foreach($recorrido->descargas as $descarga)
+                            <div class="border border-gray-200 rounded-lg p-3 hover:bg-gray-50 transition-colors">
+                                <div class="flex justify-between items-start">
+                                    <div>
+                                        <span class="text-sm font-semibold text-gray-900">
+                                            Descarga #{{ $descarga->numero_descarga }}
+                                        </span>
+                                        <div class="text-xs text-gray-600 mt-1">
+                                            <i class="far fa-clock mr-1"></i>
+                                            {{ $descarga->fecha_inicio->format('H:i:s') }}
+                                            @if($descarga->fecha_fin)
+                                            - {{ $descarga->fecha_fin->format('H:i:s') }}
+                                            @endif
+                                        </div>
+                                        @if($descarga->duracion_minutos)
+                                        <div class="text-xs text-gray-500 mt-0.5">
+                                            Duración: {{ $descarga->duracion_formateada }}
+                                            | {{ $descarga->puntos_durante_descarga }} pts
+                                            @if($descarga->distancia_metros)
+                                            | {{ number_format($descarga->distancia_metros / 1000, 2) }} km
+                                            @endif
+                                        </div>
+                                        @endif
+                                    </div>
+                                    <div class="flex gap-2">
+                                        @if($descarga->estado === 'finalizada')
+                                        <button onclick="mostrarDescarga({{ $descarga->id }})"
+                                                class="text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 px-3 py-1.5 rounded-lg transition-colors">
+                                            <i class="fas fa-map-marker-alt mr-1"></i>
+                                            Ver en mapa
+                                        </button>
+                                        @else
+                                        <span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
+                                            En curso
+                                        </span>
+                                        @endif
+                                    </div>
+                                </div>
+                            </div>
+                            @endforeach
+                        </div>
+                    </div>
+                    @endif
 
                     <!-- Tarjeta de exportación -->
                     <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -477,11 +538,103 @@
 
         // Inicializar
         cargarPuntos();
-        
+
         @if($recorrido->estado === 'activo')
         setInterval(cargarPuntos, 10000);
         @endif
+
+        // ========== VISUALIZACIÓN DE DESCARGAS ==========
+        window.descargaLayers = {};
+        window.descargaActiva = null;
+        window.mapRef = map;
     });
+
+    // Mostrar/ocultar descarga en el mapa
+    async function mostrarDescarga(descargaId) {
+        const map = window.mapRef;
+
+        // Si ya está mostrada, ocultar
+        if (window.descargaActiva === descargaId) {
+            ocultarDescarga(descargaId);
+            return;
+        }
+
+        // Ocultar descarga anterior si existe
+        if (window.descargaActiva !== null) {
+            ocultarDescarga(window.descargaActiva);
+        }
+
+        window.descargaActiva = descargaId;
+
+        // Verificar si ya tenemos los puntos en cache
+        if (window.descargaLayers[descargaId]) {
+            window.descargaLayers[descargaId].addTo(map);
+            map.fitBounds(window.descargaLayers[descargaId].getBounds(), { padding: [50, 50] });
+            return;
+        }
+
+        try {
+            const response = await fetch(`{{ url('/recorridos') }}/{{ $recorrido->id }}/descargas/${descargaId}/puntos`);
+            const puntos = await response.json();
+
+            if (!puntos || puntos.length === 0) {
+                alert('No hay puntos GPS para esta descarga');
+                return;
+            }
+
+            // Crear layer group para la descarga
+            const layerGroup = L.layerGroup();
+
+            // Convertir puntos a LatLng
+            const latlngs = puntos.map(p => L.latLng(parseFloat(p.lat), parseFloat(p.lng)));
+
+            // Dibujar línea naranja punteada
+            const polyline = L.polyline(latlngs, {
+                color: '#f97316',
+                weight: 4,
+                opacity: 0.9,
+                dashArray: '10, 10',
+                lineCap: 'round',
+            }).addTo(layerGroup);
+
+            // Marcador de inicio de descarga (naranja)
+            L.marker(latlngs[0], {
+                icon: L.divIcon({
+                    html: '<div style="background:#ea580c;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:3px solid white;box-shadow:0 4px 8px rgba(0,0,0,0.25);"><i class="fas fa-arrow-down" style="color:white;font-size:12px;"></i></div>',
+                    iconSize: [32, 32],
+                    iconAnchor: [16, 16]
+                })
+            }).addTo(layerGroup).bindPopup('🚛 <b>Inicio descarga</b>');
+
+            // Marcador de fin de descarga (verde)
+            L.marker(latlngs[latlngs.length - 1], {
+                icon: L.divIcon({
+                    html: '<div style="background:#16a34a;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:3px solid white;box-shadow:0 4px 8px rgba(0,0,0,0.25);"><i class="fas fa-arrow-up" style="color:white;font-size:12px;"></i></div>',
+                    iconSize: [32, 32],
+                    iconAnchor: [16, 16]
+                })
+            }).addTo(layerGroup).bindPopup('✅ <b>Fin descarga</b>');
+
+            // Guardar en cache y agregar al mapa
+            window.descargaLayers[descargaId] = layerGroup;
+            layerGroup.addTo(map);
+
+            // Ajustar vista
+            map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
+
+        } catch (error) {
+            console.error('Error cargando puntos de descarga:', error);
+            alert('Error al cargar los puntos de la descarga');
+        }
+    }
+
+    function ocultarDescarga(descargaId) {
+        const map = window.mapRef;
+        if (window.descargaLayers[descargaId] && map.hasLayer(window.descargaLayers[descargaId])) {
+            map.removeLayer(window.descargaLayers[descargaId]);
+        }
+        window.descargaActiva = null;
+    }
 
     // Funciones de exportación
     function exportarCSV(id) {

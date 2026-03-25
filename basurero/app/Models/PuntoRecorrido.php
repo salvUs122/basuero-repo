@@ -10,6 +10,7 @@ class PuntoRecorrido extends Model
 
     protected $fillable = [
         'recorrido_id',
+        'descarga_id',
         'lat',
         'lng',
         'precision_m',
@@ -25,5 +26,18 @@ class PuntoRecorrido extends Model
     public function recorrido()
     {
         return $this->belongsTo(Recorrido::class);
+    }
+
+    public function descarga()
+    {
+        return $this->belongsTo(\App\Models\DescargaBotadero::class, 'descarga_id');
+    }
+
+    /**
+     * Verifica si el punto pertenece a una descarga
+     */
+    public function esDeDescarga(): bool
+    {
+        return $this->descarga_id !== null;
     }
 }

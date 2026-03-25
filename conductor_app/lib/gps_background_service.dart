@@ -83,11 +83,51 @@ Future<void> stopGpsService() async {
     debugPrint('⚠️ stopGpsService: Saltando en web');
     return;
   }
-  
+
   try {
     await FlutterForegroundTask.stopService();
   } catch (e) {
     debugPrint('⚠️ Error deteniendo foreground service: $e');
+  }
+}
+
+/// Actualiza la notificación del servicio foreground
+Future<void> updateGpsServiceNotification({
+  String? ruta,
+  String? camion,
+  String? horaInicio,
+  bool enDescarga = false,
+  int? numeroDescarga,
+}) async {
+  // En web no hay foreground service
+  if (kIsWeb) {
+    debugPrint('⚠️ updateGpsServiceNotification: Saltando en web');
+    return;
+  }
+
+  try {
+    if (!await FlutterForegroundTask.isRunningService) return;
+
+    String titulo;
+    String texto;
+
+    if (enDescarga && numeroDescarga != null) {
+      titulo = 'GeoFlota · Descarga #$numeroDescarga';
+      texto = 'Camión: ${camion ?? "N/D"} | Descargando en botadero';
+    } else {
+      titulo = 'GeoFlota · ${camion ?? ""}';
+      final partes = <String>[];
+      if (ruta != null) partes.add('Ruta: $ruta');
+      if (horaInicio != null) partes.add('Inicio: $horaInicio');
+      texto = partes.isNotEmpty ? partes.join(' | ') : 'Compartiendo ubicación';
+    }
+
+    await FlutterForegroundTask.updateService(
+      notificationTitle: titulo,
+      notificationText: texto,
+    );
+  } catch (e) {
+    debugPrint('⚠️ Error actualizando notificación: $e');
   }
 }
 

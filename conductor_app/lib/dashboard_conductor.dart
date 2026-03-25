@@ -16,6 +16,12 @@ class RecorridoDrawer extends StatelessWidget {
   final VoidCallback onToggleGPS;
   final bool gpsActivo;
   final String? horaInicio;
+  // Parámetros para descarga al botadero
+  final bool enDescarga;
+  final int numeroDescarga;
+  final String? horaInicioDescarga;
+  final VoidCallback onIniciarDescarga;
+  final VoidCallback onFinalizarDescarga;
 
   const RecorridoDrawer({
     super.key,
@@ -24,6 +30,12 @@ class RecorridoDrawer extends StatelessWidget {
     required this.onToggleGPS,
     required this.gpsActivo,
     this.horaInicio,
+    // Nuevos parámetros requeridos
+    required this.enDescarga,
+    required this.numeroDescarga,
+    this.horaInicioDescarga,
+    required this.onIniciarDescarga,
+    required this.onFinalizarDescarga,
   });
 
   @override
@@ -111,11 +123,72 @@ class RecorridoDrawer extends StatelessWidget {
 
               const Spacer(),
 
+              // Indicador de descarga activa
+              if (enDescarga)
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orange.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.local_shipping, color: Colors.orange.shade700),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'DESCARGA #$numeroDescarga EN CURSO',
+                              style: TextStyle(
+                                color: Colors.orange.shade900,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                            if (horaInicioDescarga != null)
+                              Text(
+                                'Inicio: $horaInicioDescarga',
+                                style: TextStyle(
+                                  color: Colors.orange.shade700,
+                                  fontSize: 11,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
               // Botones de acción
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
+                    // Botón de descarga/continuar ruta
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: enDescarga ? onFinalizarDescarga : onIniciarDescarga,
+                        icon: Icon(enDescarga ? Icons.play_arrow : Icons.local_shipping),
+                        label: Text(
+                          enDescarga ? 'CONTINUAR RUTA' : 'DESCARGAR AL BOTADERO',
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: enDescarga ? Colors.green : Colors.orange,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
@@ -142,12 +215,13 @@ class RecorridoDrawer extends StatelessWidget {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
-                        onPressed: onFinalizar,
+                        onPressed: enDescarga ? null : onFinalizar,
                         icon: const Icon(Icons.stop),
                         label: const Text('FINALIZAR RECORRIDO'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.red,
                           foregroundColor: Colors.white,
+                          disabledBackgroundColor: Colors.grey.shade300,
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
@@ -238,6 +312,12 @@ class _DashboardConductorState extends State<DashboardConductor> {
   String? _horaInicioRecorrido;
   bool _mostrandoRecordatorioFin = false;
 
+  // ========== DESCARGA AL BOTADERO ==========
+  bool _enDescarga = false;
+  Map<String, dynamic>? _descargaActiva;
+  int _numeroDescarga = 0;
+  String? _horaInicioDescarga;
+
   @override
   void initState() {
     super.initState();
@@ -323,6 +403,9 @@ class _DashboardConductorState extends State<DashboardConductor> {
 
       // Restaurar trayectoria GPS previa (por si el conductor recargó la página)
       _cargarPuntosExistentes(recorridoId);
+
+      // Verificar si hay descarga activa
+      await _verificarDescargaActiva(token);
 
       _iniciarGPS();
     } catch (e) {
@@ -427,6 +510,224 @@ class _DashboardConductorState extends State<DashboardConductor> {
       return '$hour:$minute:$second';
     } catch (_) {
       return null;
+    }
+  }
+
+  // ========== MÉTODOS PARA DESCARGA AL BOTADERO ==========
+
+  /// Verifica si hay descarga activa al cargar datos
+  Future<void> _verificarDescargaActiva(String token) async {
+    try {
+      final response = await http.get(
+        Uri.parse('${Config.baseUrl}/conductor/descarga/activa'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['data'] != null) {
+          setState(() {
+            _enDescarga = true;
+            _descargaActiva = data['data'];
+            _numeroDescarga = data['data']['numero_descarga'];
+            _horaInicioDescarga = _formatearHora(data['data']['fecha_inicio']);
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error verificando descarga activa: $e');
+    }
+  }
+
+  /// Inicia una descarga al botadero
+  Future<void> _iniciarDescarga() async {
+    if (_currentPosition == null) {
+      _mostrarSnackbar('Esperando ubicación GPS...');
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade100,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.local_shipping, color: Colors.orange.shade600, size: 20),
+            ),
+            const SizedBox(width: 12),
+            const Text('Iniciar descarga'),
+          ],
+        ),
+        content: const Text(
+          'Vas a registrar el inicio de descarga al botadero. '
+          'El GPS seguirá capturando tu ubicación durante el viaje.'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('CANCELAR'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('INICIAR DESCARGA'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+
+      final response = await http.post(
+        Uri.parse('${Config.baseUrl}/conductor/descarga/iniciar'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'lat': _currentPosition!.latitude,
+          'lng': _currentPosition!.longitude,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        setState(() {
+          _enDescarga = true;
+          _descargaActiva = data['data'];
+          _numeroDescarga = data['data']['numero_descarga'];
+          _horaInicioDescarga = _formatearHora(data['data']['fecha_inicio']);
+        });
+
+        _mostrarSnackbar('Descarga #$_numeroDescarga iniciada');
+
+        // Actualizar notificación del foreground service
+        await updateGpsServiceNotification(
+          ruta: _recorridoActivo?['ruta'],
+          camion: _recorridoActivo?['camion'],
+          horaInicio: _horaInicioRecorrido,
+          enDescarga: true,
+          numeroDescarga: _numeroDescarga,
+        );
+      } else {
+        _mostrarSnackbar(data['message'] ?? 'Error al iniciar descarga');
+      }
+    } catch (e) {
+      _mostrarSnackbar('Error: $e');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  /// Finaliza la descarga al botadero
+  Future<void> _finalizarDescarga() async {
+    if (_currentPosition == null) {
+      _mostrarSnackbar('Esperando ubicación GPS...');
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.green.shade100,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.check_circle, color: Colors.green.shade600, size: 20),
+            ),
+            const SizedBox(width: 12),
+            const Text('Finalizar descarga'),
+          ],
+        ),
+        content: Text(
+          'Finalizarás la descarga #$_numeroDescarga. '
+          'Continuarás con el recorrido normal de la ruta.'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('CANCELAR'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('CONTINUAR RUTA'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+
+      final response = await http.post(
+        Uri.parse('${Config.baseUrl}/conductor/descarga/finalizar'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'lat': _currentPosition!.latitude,
+          'lng': _currentPosition!.longitude,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        final duracion = data['data']['duracion_minutos'] ?? 0;
+
+        setState(() {
+          _enDescarga = false;
+          _descargaActiva = null;
+          _horaInicioDescarga = null;
+        });
+
+        _mostrarSnackbar('Descarga #$_numeroDescarga finalizada (${duracion}min)');
+
+        // Restaurar notificación normal
+        await updateGpsServiceNotification(
+          ruta: _recorridoActivo?['ruta'],
+          camion: _recorridoActivo?['camion'],
+          horaInicio: _horaInicioRecorrido,
+          enDescarga: false,
+        );
+      } else {
+        _mostrarSnackbar(data['message'] ?? 'Error al finalizar descarga');
+      }
+    } catch (e) {
+      _mostrarSnackbar('Error: $e');
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
@@ -1173,6 +1474,12 @@ class _DashboardConductorState extends State<DashboardConductor> {
               },
               gpsActivo: _gpsActivo,
               horaInicio: _horaInicioRecorrido,
+              // Parámetros de descarga
+              enDescarga: _enDescarga,
+              numeroDescarga: _numeroDescarga,
+              horaInicioDescarga: _horaInicioDescarga,
+              onIniciarDescarga: _iniciarDescarga,
+              onFinalizarDescarga: _finalizarDescarga,
             )
           : null,
       body: _isLoading

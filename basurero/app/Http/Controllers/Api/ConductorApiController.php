@@ -8,6 +8,7 @@ use App\Models\Recorrido;
 use App\Models\Ruta;
 use App\Models\PuntoRecorrido;
 use App\Models\EventoRecorrido;
+use App\Models\DescargaBotadero;
 use App\Models\HorarioDia;
 use App\Models\Configuracion;
 use App\Support\Geo;
@@ -382,8 +383,15 @@ class ConductorApiController extends Controller
                 }
             }
 
+            // Obtener descarga activa si existe
+            $descargaActiva = $recorrido->descargas()
+                ->where('estado', 'en_descarga')
+                ->latest('id')
+                ->first();
+
             PuntoRecorrido::create([
                 'recorrido_id' => $recorrido->id,
+                'descarga_id' => $descargaActiva?->id,
                 'lat' => $request->lat,
                 'lng' => $request->lng,
                 'precision_m' => $request->precision_m,
@@ -453,7 +461,8 @@ class ConductorApiController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Punto guardado'
+                'message' => 'Punto guardado',
+                'en_descarga' => $descargaActiva !== null,
             ]);
 
         } catch (\Exception $e) {
@@ -493,5 +502,239 @@ class ConductorApiController extends Controller
         $config->update(['valor' => $request->valor]);
 
         return response()->json(['success' => true, 'message' => 'Configuración actualizada']);
+    }
+
+    // ========== DESCARGA AL BOTADERO ==========
+
+    /**
+     * Iniciar descarga al botadero
+     * POST /conductor/descarga/iniciar
+     */
+    public function iniciarDescarga(Request $request)
+    {
+        $request->validate([
+            'lat' => 'required|numeric|between:-90,90',
+            'lng' => 'required|numeric|between:-180,180',
+            'observaciones' => 'nullable|string|max:255',
+        ]);
+
+        $user = $request->user();
+
+        // Obtener recorrido activo
+        $recorrido = Recorrido::where('conductor_id', $user->id)
+            ->where('estado', 'en_curso')
+            ->latest('id')
+            ->first();
+
+        if (!$recorrido) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes un recorrido activo'
+            ], 400);
+        }
+
+        // Verificar que no haya otra descarga activa
+        if ($recorrido->tieneDescargaActiva()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Ya tienes una descarga en curso. Finalízala antes de iniciar otra.'
+            ], 400);
+        }
+
+        try {
+            $descarga = DescargaBotadero::create([
+                'recorrido_id' => $recorrido->id,
+                'numero_descarga' => $recorrido->getSiguienteNumeroDescarga(),
+                'estado' => 'en_descarga',
+                'lat_inicio' => $request->lat,
+                'lng_inicio' => $request->lng,
+                'fecha_inicio' => now(),
+                'observaciones' => $request->observaciones,
+            ]);
+
+            // Registrar evento
+            EventoRecorrido::create([
+                'recorrido_id' => $recorrido->id,
+                'tipo' => 'inicio_descarga',
+                'mensaje' => "Inicio descarga #{$descarga->numero_descarga} al botadero",
+                'lat' => $request->lat,
+                'lng' => $request->lng,
+                'fecha_evento' => now(),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Descarga iniciada',
+                'data' => [
+                    'descarga_id' => $descarga->id,
+                    'numero_descarga' => $descarga->numero_descarga,
+                    'fecha_inicio' => $descarga->fecha_inicio->toIso8601String(),
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error iniciando descarga: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al iniciar descarga'
+            ], 500);
+        }
+    }
+
+    /**
+     * Finalizar descarga al botadero
+     * POST /conductor/descarga/finalizar
+     */
+    public function finalizarDescarga(Request $request)
+    {
+        $request->validate([
+            'lat' => 'required|numeric|between:-90,90',
+            'lng' => 'required|numeric|between:-180,180',
+        ]);
+
+        $user = $request->user();
+
+        // Obtener recorrido activo
+        $recorrido = Recorrido::where('conductor_id', $user->id)
+            ->where('estado', 'en_curso')
+            ->latest('id')
+            ->first();
+
+        if (!$recorrido) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes un recorrido activo'
+            ], 400);
+        }
+
+        // Obtener descarga activa
+        $descarga = $recorrido->descargas()
+            ->where('estado', 'en_descarga')
+            ->latest('id')
+            ->first();
+
+        if (!$descarga) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes una descarga activa'
+            ], 400);
+        }
+
+        try {
+            // Contar puntos capturados durante la descarga
+            $puntosDescarga = PuntoRecorrido::where('descarga_id', $descarga->id)->count();
+
+            // Calcular distancia recorrida durante descarga
+            $distancia = $this->calcularDistanciaDescarga($descarga);
+
+            $descarga->update([
+                'estado' => 'finalizada',
+                'lat_fin' => $request->lat,
+                'lng_fin' => $request->lng,
+                'fecha_fin' => now(),
+                'puntos_durante_descarga' => $puntosDescarga,
+                'distancia_metros' => $distancia,
+            ]);
+
+            // Registrar evento
+            EventoRecorrido::create([
+                'recorrido_id' => $recorrido->id,
+                'tipo' => 'fin_descarga',
+                'mensaje' => "Fin descarga #{$descarga->numero_descarga} - Duración: {$descarga->duracion_formateada}",
+                'lat' => $request->lat,
+                'lng' => $request->lng,
+                'fecha_evento' => now(),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Descarga finalizada',
+                'data' => [
+                    'descarga_id' => $descarga->id,
+                    'duracion_minutos' => $descarga->duracion_minutos,
+                    'puntos_capturados' => $puntosDescarga,
+                    'distancia_metros' => round($distancia, 2),
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error finalizando descarga: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al finalizar descarga'
+            ], 500);
+        }
+    }
+
+    /**
+     * Obtener estado de descarga activa
+     * GET /conductor/descarga/activa
+     */
+    public function getDescargaActiva(Request $request)
+    {
+        $user = $request->user();
+
+        $recorrido = Recorrido::where('conductor_id', $user->id)
+            ->where('estado', 'en_curso')
+            ->latest('id')
+            ->first();
+
+        if (!$recorrido) {
+            return response()->json([
+                'success' => true,
+                'data' => null,
+            ]);
+        }
+
+        $descarga = $recorrido->descargas()
+            ->where('estado', 'en_descarga')
+            ->latest('id')
+            ->first();
+
+        if (!$descarga) {
+            return response()->json([
+                'success' => true,
+                'data' => null,
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $descarga->id,
+                'numero_descarga' => $descarga->numero_descarga,
+                'fecha_inicio' => $descarga->fecha_inicio->toIso8601String(),
+                'lat_inicio' => $descarga->lat_inicio,
+                'lng_inicio' => $descarga->lng_inicio,
+            ],
+        ]);
+    }
+
+    /**
+     * Calcula la distancia recorrida durante una descarga
+     */
+    private function calcularDistanciaDescarga(DescargaBotadero $descarga): float
+    {
+        $puntos = PuntoRecorrido::where('descarga_id', $descarga->id)
+            ->orderBy('fecha_gps')
+            ->get(['lat', 'lng']);
+
+        if ($puntos->count() < 2) {
+            return 0;
+        }
+
+        $distancia = 0;
+        for ($i = 1; $i < $puntos->count(); $i++) {
+            $distancia += Geo::haversine(
+                (float)$puntos[$i-1]->lat,
+                (float)$puntos[$i-1]->lng,
+                (float)$puntos[$i]->lat,
+                (float)$puntos[$i]->lng
+            );
+        }
+
+        return $distancia;
     }
 }

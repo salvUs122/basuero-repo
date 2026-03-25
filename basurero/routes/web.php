@@ -151,7 +151,8 @@ Route::middleware(['auth', 'role:administrador|encargado'])->group(function () {
         Route::get('/{recorrido}', [RecorridosAdminController::class, 'show'])->name('show.historial');
         Route::get('/{recorrido}/detalle', [RecorridoController::class, 'show'])->name('show');
         Route::get('/{recorrido}/puntos', [RecorridoController::class, 'puntos'])->name('puntos');
-        
+        Route::get('/{recorrido}/descargas/{descarga}/puntos', [RecorridoController::class, 'puntosDescarga'])->name('descarga.puntos');
+
         // Exportaciones
         Route::get('/{recorrido}/exportar/gps', [RecorridoController::class, 'exportarGPS'])->name('exportar.gps');
         Route::get('/{recorrido}/exportar/kml', [RecorridoController::class, 'exportarKML'])->name('exportar.kml');

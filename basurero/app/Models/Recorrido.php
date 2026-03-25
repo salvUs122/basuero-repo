@@ -53,4 +53,32 @@ class Recorrido extends Model
         return $this->hasMany(\App\Models\EventoRecorrido::class);
     }
 
+    public function descargas()
+    {
+        return $this->hasMany(\App\Models\DescargaBotadero::class);
+    }
+
+    public function descargaActiva()
+    {
+        return $this->hasOne(\App\Models\DescargaBotadero::class)
+                    ->where('estado', 'en_descarga')
+                    ->latest('id');
+    }
+
+    /**
+     * Verifica si el recorrido tiene una descarga activa
+     */
+    public function tieneDescargaActiva(): bool
+    {
+        return $this->descargas()->where('estado', 'en_descarga')->exists();
+    }
+
+    /**
+     * Obtiene el numero de la siguiente descarga
+     */
+    public function getSiguienteNumeroDescarga(): int
+    {
+        return ($this->descargas()->max('numero_descarga') ?? 0) + 1;
+    }
+
 }
