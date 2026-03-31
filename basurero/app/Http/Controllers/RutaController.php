@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Ruta;
+use App\Models\Configuracion;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -12,7 +13,15 @@ class RutaController extends Controller
     public function index()
     {
         $rutas = Ruta::with('camiones')->orderBy('id', 'desc')->get();
-        return view('rutas.index', compact('rutas'));
+
+        // Obtener configuración del botadero global
+        $botadero = [
+            'lat' => Configuracion::obtener('botadero_lat', ''),
+            'lng' => Configuracion::obtener('botadero_lng', ''),
+            'nombre' => Configuracion::obtener('botadero_nombre', 'Botadero'),
+        ];
+
+        return view('rutas.index', compact('rutas', 'botadero'));
     }
 
     public function create()
@@ -43,11 +52,11 @@ class RutaController extends Controller
 
             return redirect()->route('rutas.index')
                 ->with('success', '✅ Ruta creada correctamente.');
-                
+
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error creando ruta: ' . $e->getMessage());
-            
+
             return back()
                 ->with('error', '❌ Error al crear la ruta.')
                 ->withInput();
@@ -58,25 +67,25 @@ class RutaController extends Controller
      * Mostrar detalles de una ruta (para el modal)
      */
     public function show($id)
-{
-    $ruta = Ruta::withCount('camiones')->findOrFail($id);
+    {
+        $ruta = Ruta::withCount('camiones')->findOrFail($id);
 
-    // Si es una petición AJAX (desde el botón Ver)
-    if (request()->wantsJson()) {
-        return response()->json([
-            'id' => $ruta->id,
-            'nombre' => $ruta->nombre,
-            'estado' => $ruta->estado,
-            'tolerancia_metros' => $ruta->tolerancia_metros,
-            'camiones_count' => $ruta->camiones_count,
-            'geometria_geojson' => $ruta->geometria_geojson,
-            'created_at' => $ruta->created_at->format('d/m/Y H:i'),
-        ]);
+        // Si es una petición AJAX (desde el botón Ver)
+        if (request()->wantsJson()) {
+            return response()->json([
+                'id' => $ruta->id,
+                'nombre' => $ruta->nombre,
+                'estado' => $ruta->estado,
+                'tolerancia_metros' => $ruta->tolerancia_metros,
+                'camiones_count' => $ruta->camiones_count,
+                'geometria_geojson' => $ruta->geometria_geojson,
+                'created_at' => $ruta->created_at->format('d/m/Y H:i'),
+            ]);
+        }
+
+        // Si es una petición normal, mostrar vista completa
+        return view('rutas.show', compact('ruta'));
     }
-
-    // Si es una petición normal, mostrar vista completa
-    return view('rutas.show', compact('ruta'));
-}
 
     /**
      * Mostrar formulario de edición
@@ -115,11 +124,11 @@ class RutaController extends Controller
 
             return redirect()->route('rutas.index')
                 ->with('success', '✅ Ruta actualizada correctamente.');
-                
+
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error actualizando ruta: ' . $e->getMessage());
-            
+
             return back()
                 ->with('error', '❌ Error al actualizar la ruta.')
                 ->withInput();
@@ -160,6 +169,97 @@ class RutaController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => '❌ Error al eliminar la ruta.'
+            ], 500);
+        }
+    }
+
+    /**
+     * Obtener configuración del botadero global.
+     */
+    public function getBotadero()
+    {
+        return response()->json([
+            'lat' => Configuracion::obtener('botadero_lat', ''),
+            'lng' => Configuracion::obtener('botadero_lng', ''),
+            'nombre' => Configuracion::obtener('botadero_nombre', 'Botadero'),
+        ]);
+    }
+
+    /**
+     * Guardar configuración del botadero global.
+     */
+    public function saveBotadero(Request $request)
+    {
+        $request->validate([
+            'lat' => 'required|numeric|between:-90,90',
+            'lng' => 'required|numeric|between:-180,180',
+            'nombre' => 'required|string|max:150',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            // Guardar o actualizar cada configuración
+            Configuracion::updateOrCreate(
+                ['clave' => 'botadero_lat'],
+                ['valor' => $request->lat, 'descripcion' => 'Latitud del botadero']
+            );
+
+            Configuracion::updateOrCreate(
+                ['clave' => 'botadero_lng'],
+                ['valor' => $request->lng, 'descripcion' => 'Longitud del botadero']
+            );
+
+            Configuracion::updateOrCreate(
+                ['clave' => 'botadero_nombre'],
+                ['valor' => $request->nombre, 'descripcion' => 'Nombre del botadero']
+            );
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => '✅ Ubicación del botadero guardada correctamente.'
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error guardando botadero: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => '❌ Error al guardar la ubicación del botadero.'
+            ], 500);
+        }
+    }
+
+    /**
+     * Eliminar configuración del botadero global.
+     */
+    public function deleteBotadero(Request $request)
+    {
+        try {
+            DB::beginTransaction();
+
+            // Eliminar las configuraciones del botadero
+            Configuracion::where('clave', 'botadero_lat')->delete();
+            Configuracion::where('clave', 'botadero_lng')->delete();
+            Configuracion::where('clave', 'botadero_nombre')->delete();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => '✅ Botadero eliminado correctamente.'
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error eliminando botadero: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => '❌ Error al eliminar el botadero.'
             ], 500);
         }
     }

@@ -62,14 +62,26 @@
                                         </span>
                                         <span class="text-gray-300">|</span>
                                         <span class="flex items-center gap-1">
+                                            <span class="w-3 h-3 rounded-full bg-yellow-500 inline-block flex-shrink-0"></span>
+                                            Parada
+                                        </span>
+                                        <span class="text-gray-300">|</span>
+                                        <span class="flex items-center gap-1">
                                             <span class="inline-block w-5 h-1 bg-blue-500 rounded"></span>
                                             Ruta planificada
                                         </span>
+                                        @if($botadero['lat'])
+                                        <span class="text-gray-300">|</span>
+                                        <span class="flex items-center gap-1">
+                                            <span class="w-3 h-3 rounded-full bg-orange-500 inline-block flex-shrink-0"></span>
+                                            Botadero
+                                        </span>
+                                        @endif
                                         @if($recorrido->descargas && $recorrido->descargas->count() > 0)
                                         <span class="text-gray-300">|</span>
                                         <span class="flex items-center gap-1">
                                             <span class="inline-block w-5 h-0.5 rounded" style="border-bottom: 2px dashed #f97316;"></span>
-                                            Descarga
+                                            Ruta a descarga
                                         </span>
                                         @endif
                                     </div>
@@ -189,63 +201,129 @@
                                         <span class="text-sm font-medium text-gray-900">{{ $recorrido->ruta?->tolerancia_metros ?? 50 }} m</span>
                                     </div>
                                 </div>
+                                <div class="pt-3 mt-3 border-t border-gray-200">
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm text-gray-600">
+                                            <i class="fas fa-pause-circle text-yellow-500 mr-1"></i>
+                                            Paradas detectadas
+                                        </span>
+                                        <span id="stats_paradas" class="text-lg font-bold text-yellow-600">0</span>
+                                    </div>
+                                    <div class="flex justify-between items-center mt-2">
+                                        <span class="text-sm text-gray-600">Tiempo total detenido</span>
+                                        <span id="stats_tiempo_paradas" class="text-sm font-medium text-gray-900">0min</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Tarjeta de Descargas al Botadero -->
-                    @if($recorrido->descargas && $recorrido->descargas->count() > 0)
+                    <!-- Tarjeta de Ruta al Botadero (siempre visible) -->
                     <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                         <div class="bg-gradient-to-r from-orange-600 to-orange-700 px-5 py-4">
                             <h3 class="text-white font-semibold flex items-center">
                                 <i class="fas fa-truck-loading mr-2"></i>
-                                Descargas al Botadero ({{ $recorrido->descargas->count() }})
+                                Ruta al Botadero
+                                @if($recorrido->descargas && $recorrido->descargas->count() > 0)
+                                <span class="ml-2 bg-white/20 px-2 py-0.5 rounded-full text-xs">
+                                    {{ $recorrido->descargas->count() }} {{ $recorrido->descargas->count() === 1 ? 'descarga' : 'descargas' }}
+                                </span>
+                                @endif
                             </h3>
                         </div>
-                        <div class="p-5 space-y-3">
-                            @foreach($recorrido->descargas as $descarga)
-                            <div class="border border-gray-200 rounded-lg p-3 hover:bg-gray-50 transition-colors">
-                                <div class="flex justify-between items-start">
-                                    <div>
-                                        <span class="text-sm font-semibold text-gray-900">
-                                            Descarga #{{ $descarga->numero_descarga }}
-                                        </span>
-                                        <div class="text-xs text-gray-600 mt-1">
-                                            <i class="far fa-clock mr-1"></i>
-                                            {{ $descarga->fecha_inicio->format('H:i:s') }}
-                                            @if($descarga->fecha_fin)
-                                            - {{ $descarga->fecha_fin->format('H:i:s') }}
-                                            @endif
-                                        </div>
-                                        @if($descarga->duracion_minutos)
-                                        <div class="text-xs text-gray-500 mt-0.5">
-                                            Duración: {{ $descarga->duracion_formateada }}
-                                            | {{ $descarga->puntos_durante_descarga }} pts
-                                            @if($descarga->distancia_metros)
-                                            | {{ number_format($descarga->distancia_metros / 1000, 2) }} km
-                                            @endif
-                                        </div>
-                                        @endif
+                        <div class="p-5 space-y-4">
+                            <!-- Info del Botadero -->
+                            @if($botadero['lat'])
+                            <div class="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                                <div class="flex items-start gap-3">
+                                    <div class="bg-orange-100 p-2 rounded-full flex-shrink-0">
+                                        <i class="fas fa-map-marker-alt text-orange-600"></i>
                                     </div>
-                                    <div class="flex gap-2">
-                                        @if($descarga->estado === 'finalizada')
-                                        <button onclick="mostrarDescarga({{ $descarga->id }})"
-                                                class="text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 px-3 py-1.5 rounded-lg transition-colors">
-                                            <i class="fas fa-map-marker-alt mr-1"></i>
-                                            Ver en mapa
-                                        </button>
-                                        @else
-                                        <span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
-                                            En curso
-                                        </span>
-                                        @endif
+                                    <div class="flex-1">
+                                        <p class="text-sm font-semibold text-orange-800">{{ $botadero['nombre'] }}</p>
+                                        <p class="text-xs text-orange-600 mt-0.5">
+                                            <i class="fas fa-location-dot mr-1"></i>
+                                            {{ number_format($botadero['lat'], 6) }}, {{ number_format($botadero['lng'], 6) }}
+                                        </p>
                                     </div>
+                                    <button onclick="mostrarBotaderoEnMapa()"
+                                            class="text-xs bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1">
+                                        <i class="fas fa-eye"></i>
+                                        Ver en mapa
+                                    </button>
                                 </div>
                             </div>
-                            @endforeach
+                            @else
+                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                                <div class="flex items-center gap-3">
+                                    <i class="fas fa-exclamation-triangle text-yellow-600"></i>
+                                    <p class="text-sm text-yellow-800">
+                                        No hay botadero configurado en el sistema.
+                                    </p>
+                                </div>
+                            </div>
+                            @endif
+
+                            <!-- Descargas realizadas -->
+                            @if($recorrido->descargas && $recorrido->descargas->count() > 0)
+                            <div class="border-t border-gray-200 pt-4">
+                                <h4 class="text-sm font-semibold text-gray-700 mb-3 flex items-center">
+                                    <i class="fas fa-history mr-2 text-gray-400"></i>
+                                    Descargas realizadas
+                                </h4>
+                                <div class="space-y-2">
+                                    @foreach($recorrido->descargas as $descarga)
+                                    <div class="border border-gray-200 rounded-lg p-3 hover:bg-gray-50 transition-colors">
+                                        <div class="flex justify-between items-start">
+                                            <div>
+                                                <span class="text-sm font-semibold text-gray-900">
+                                                    Descarga #{{ $descarga->numero_descarga }}
+                                                </span>
+                                                <div class="text-xs text-gray-600 mt-1">
+                                                    <i class="far fa-clock mr-1"></i>
+                                                    {{ $descarga->fecha_inicio->format('H:i:s') }}
+                                                    @if($descarga->fecha_fin)
+                                                    - {{ $descarga->fecha_fin->format('H:i:s') }}
+                                                    @endif
+                                                </div>
+                                                @if($descarga->duracion_minutos)
+                                                <div class="text-xs text-gray-500 mt-0.5">
+                                                    Duración: {{ $descarga->duracion_formateada }}
+                                                    | {{ $descarga->puntos_durante_descarga }} pts
+                                                    @if($descarga->distancia_metros)
+                                                    | {{ number_format($descarga->distancia_metros / 1000, 2) }} km
+                                                    @endif
+                                                </div>
+                                                @endif
+                                            </div>
+                                            <div class="flex gap-2">
+                                                @if($descarga->estado === 'finalizada')
+                                                <button onclick="mostrarDescarga({{ $descarga->id }})"
+                                                        class="text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 px-3 py-1.5 rounded-lg transition-colors">
+                                                    <i class="fas fa-route mr-1"></i>
+                                                    Ver ruta
+                                                </button>
+                                                @else
+                                                <span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
+                                                    En curso
+                                                </span>
+                                                @endif
+                                            </div>
+                                        </div>
+                                    </div>
+                                    @endforeach
+                                </div>
+                            </div>
+                            @else
+                            <div class="border-t border-gray-200 pt-4">
+                                <div class="text-center py-4 text-gray-500">
+                                    <i class="fas fa-inbox text-3xl mb-2 text-gray-300"></i>
+                                    <p class="text-sm">No se realizaron descargas en este recorrido</p>
+                                </div>
+                            </div>
+                            @endif
                         </div>
                     </div>
-                    @endif
 
                     <!-- Tarjeta de exportación -->
                     <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -288,6 +366,7 @@
         let rutaPlanificadaLayer = null;
         let recorridoRealLayer = null;
         let puntosFueraRutaLayer = L.layerGroup().addTo(map);
+        let paradasLayer = L.layerGroup().addTo(map);
         let inicioMarker = null;
         let finMarker = null;
         let posicionActualMarker = null;
@@ -471,6 +550,33 @@
                         ? `<br><span style="color:#6b7280;">🕐 ${new Date(p.fecha_gps).toLocaleTimeString()}</span>`
                         : '';
 
+                    // Formatear tiempo detenido
+                    let tiempoDetenidoHtml = '';
+                    if (p.tiempo_detenido && p.tiempo_detenido > 0) {
+                        const segundos = parseInt(p.tiempo_detenido);
+                        let duracion = '';
+                        if (segundos < 60) {
+                            duracion = `${segundos} seg`;
+                        } else if (segundos < 3600) {
+                            const min = Math.floor(segundos / 60);
+                            const seg = segundos % 60;
+                            duracion = seg > 0 ? `${min} min ${seg} seg` : `${min} min`;
+                        } else {
+                            const hrs = Math.floor(segundos / 3600);
+                            const min = Math.floor((segundos % 3600) / 60);
+                            duracion = min > 0 ? `${hrs}h ${min}min` : `${hrs}h`;
+                        }
+                        const colorTiempo = segundos >= 120 ? '#dc2626' : '#ca8a04';
+                        tiempoDetenidoHtml = `<br><span style="color:${colorTiempo};font-weight:bold;">⏱️ Detenido: ${duracion}</span>`;
+                    }
+
+                    // Velocidad si está disponible
+                    let velocidadHtml = '';
+                    if (p.velocidad_mps !== null && p.velocidad_mps !== undefined) {
+                        const kmh = (parseFloat(p.velocidad_mps) * 3.6).toFixed(1);
+                        velocidadHtml = `<br><span style="color:#6b7280;">🚗 ${kmh} km/h</span>`;
+                    }
+
                     L.circleMarker(punto, {
                         radius: 5,
                         color: colorBorde,
@@ -482,7 +588,7 @@
                         <div style="font-size:12px;line-height:1.6">
                             <b style="color:${colorRelleno};">${etiqueta}</b><br>
                             Lat: ${parseFloat(p.lat).toFixed(6)}<br>
-                            Lng: ${parseFloat(p.lng).toFixed(6)}${hora}
+                            Lng: ${parseFloat(p.lng).toFixed(6)}${hora}${velocidadHtml}${tiempoDetenidoHtml}
                         </div>
                       `);
                 });
@@ -490,6 +596,48 @@
                 // ── 3. Marcador del camión en la última posición ──
                 if (latlngs.length > 0) {
                     const ultimo = latlngs[latlngs.length - 1];
+                    const ultimoPunto = puntos[puntos.length - 1];
+                    
+                    // Calcular información del último punto
+                    let popupContent = '📍 <b>Última ubicación del camión</b>';
+                    
+                    if (ultimoPunto.fecha_gps) {
+                        const hora = new Date(ultimoPunto.fecha_gps).toLocaleTimeString();
+                        popupContent += `<br><span style="color:#6b7280;">🕐 ${hora}</span>`;
+                    }
+                    
+                    if (ultimoPunto.velocidad_mps !== null && ultimoPunto.velocidad_mps !== undefined) {
+                        const kmh = (parseFloat(ultimoPunto.velocidad_mps) * 3.6).toFixed(1);
+                        popupContent += `<br><span style="color:#6b7280;">🚗 ${kmh} km/h</span>`;
+                    }
+                    
+                    // Si el recorrido está activo y hay tiempo_detenido, mostrar cuánto lleva detenido
+                    @if($recorrido->estado === 'activo')
+                    if (ultimoPunto.tiempo_detenido && ultimoPunto.tiempo_detenido > 10) {
+                        // Calcular tiempo desde último punto hasta ahora
+                        const ahora = new Date();
+                        const ultimaHora = new Date(ultimoPunto.fecha_gps);
+                        const segundosDetenido = Math.floor((ahora - ultimaHora) / 1000);
+                        
+                        if (segundosDetenido > 30) {
+                            let duracion = '';
+                            if (segundosDetenido < 60) {
+                                duracion = `${segundosDetenido} seg`;
+                            } else if (segundosDetenido < 3600) {
+                                const min = Math.floor(segundosDetenido / 60);
+                                const seg = segundosDetenido % 60;
+                                duracion = seg > 0 ? `${min} min ${seg} seg` : `${min} min`;
+                            } else {
+                                const hrs = Math.floor(segundosDetenido / 3600);
+                                const min = Math.floor((segundosDetenido % 3600) / 60);
+                                duracion = min > 0 ? `${hrs}h ${min}min` : `${hrs}h`;
+                            }
+                            const colorTiempo = segundosDetenido >= 120 ? '#dc2626' : '#ca8a04';
+                            popupContent += `<br><span style="color:${colorTiempo};font-weight:bold;">⏱️ Detenido: ${duracion}</span>`;
+                        }
+                    }
+                    @endif
+                    
                     if (!posicionActualMarker) {
                         posicionActualMarker = L.marker(ultimo, {
                             icon: L.divIcon({
@@ -497,10 +645,11 @@
                                 iconSize: [40, 40],
                                 iconAnchor: [20, 20]
                             })
-                        }).addTo(map).bindPopup('📍 <b>Última ubicación del camión</b>');
+                        }).addTo(map);
                     } else {
                         posicionActualMarker.setLatLng(ultimo);
                     }
+                    posicionActualMarker.bindPopup(popupContent);
                 }
 
                 document.getElementById('stats_fuera_ruta').textContent = fueraRuta;
@@ -525,6 +674,86 @@
             }
         }
 
+        // Cargar puntos de parada del recorrido
+        async function cargarParadas() {
+            try {
+                const response = await fetch("{{ route('recorridos.paradas', $recorrido) }}");
+                const paradas = await response.json();
+
+                // Limpiar capa anterior
+                paradasLayer.clearLayers();
+
+                if (!paradas || paradas.length === 0) {
+                    document.getElementById('stats_paradas').textContent = '0';
+                    document.getElementById('stats_tiempo_paradas').textContent = '0min';
+                    return;
+                }
+
+                let tiempoTotal = 0;
+
+                // Dibujar marcadores de parada
+                paradas.forEach((parada, index) => {
+                    tiempoTotal += parada.segundos;
+
+                    const marker = L.marker([parada.lat, parada.lng], {
+                        icon: L.divIcon({
+                            html: `<div style="background:#eab308;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:3px solid white;box-shadow:0 4px 8px rgba(0,0,0,0.25);cursor:pointer;">
+                                <i class="fas fa-pause" style="color:white;font-size:12px;"></i>
+                            </div>`,
+                            iconSize: [32, 32],
+                            iconAnchor: [16, 16],
+                            className: 'parada-marker'
+                        })
+                    }).addTo(paradasLayer);
+
+                    // Popup con información de la parada
+                    marker.bindPopup(`
+                        <div style="font-size:12px;line-height:1.6;min-width:160px;">
+                            <div style="background:#eab308;color:white;padding:8px 12px;margin:-15px -10px 10px -10px;border-radius:4px 4px 0 0;font-weight:bold;">
+                                <i class="fas fa-pause-circle mr-1"></i> Parada #${index + 1}
+                            </div>
+                            <div style="padding:0 5px;">
+                                <p style="margin:6px 0;"><i class="fas fa-clock text-yellow-600 mr-2"></i><b>Tiempo detenido:</b><br>
+                                <span style="font-size:16px;font-weight:bold;color:#ca8a04;">${parada.duracion}</span></p>
+                                <p style="margin:6px 0;color:#6b7280;font-size:11px;">
+                                    <i class="fas fa-play-circle mr-1"></i> Inicio: ${parada.inicio}<br>
+                                    <i class="fas fa-stop-circle mr-1"></i> Fin: ${parada.fin}
+                                </p>
+                            </div>
+                        </div>
+                    `, {
+                        closeButton: true,
+                        className: 'parada-popup'
+                    });
+
+                    // Tooltip al pasar el cursor
+                    marker.bindTooltip(`⏱️ ${parada.duracion}`, {
+                        permanent: false,
+                        direction: 'top',
+                        offset: [0, -15],
+                        className: 'parada-tooltip'
+                    });
+                });
+
+                // Actualizar estadísticas
+                document.getElementById('stats_paradas').textContent = paradas.length;
+                document.getElementById('stats_tiempo_paradas').textContent = formatearTiempoTotal(tiempoTotal);
+
+            } catch(error) {
+                console.error('Error cargando paradas:', error);
+            }
+        }
+
+        // Formatear tiempo total de paradas
+        function formatearTiempoTotal(segundos) {
+            if (segundos < 60) return `${segundos}seg`;
+            const minutos = Math.floor(segundos / 60);
+            if (minutos < 60) return `${minutos}min`;
+            const horas = Math.floor(minutos / 60);
+            const min = minutos % 60;
+            return min > 0 ? `${horas}h ${min}min` : `${horas}h`;
+        }
+
         // Botón centrar — usa los límites de todos los layers visibles
         document.getElementById('btn_centrar').addEventListener('click', () => {
             const bounds = L.latLngBounds();
@@ -538,6 +767,7 @@
 
         // Inicializar
         cargarPuntos();
+        cargarParadas();
 
         @if($recorrido->estado === 'activo')
         setInterval(cargarPuntos, 10000);
@@ -636,6 +866,56 @@
         window.descargaActiva = null;
     }
 
+    // ========== MOSTRAR BOTADERO EN MAPA ==========
+    let botaderoMarker = null;
+    const botaderoLat = {{ $botadero['lat'] ?: 'null' }};
+    const botaderoLng = {{ $botadero['lng'] ?: 'null' }};
+    const botaderoNombre = "{{ $botadero['nombre'] ?? 'Botadero' }}";
+
+    function mostrarBotaderoEnMapa() {
+        if (!botaderoLat || !botaderoLng) {
+            alert('No hay botadero configurado');
+            return;
+        }
+
+        const map = window.mapRef;
+
+        // Si ya existe el marcador, centrarlo y volver
+        if (botaderoMarker) {
+            map.setView([botaderoLat, botaderoLng], 15);
+            botaderoMarker.openPopup();
+            return;
+        }
+
+        // Crear marcador del botadero
+        botaderoMarker = L.marker([botaderoLat, botaderoLng], {
+            icon: L.divIcon({
+                html: '<div style="background:#ea580c;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:3px solid white;box-shadow:0 4px 12px rgba(0,0,0,0.3);"><i class="fas fa-trash" style="color:white;font-size:16px;"></i></div>',
+                iconSize: [40, 40],
+                iconAnchor: [20, 20]
+            })
+        }).addTo(map);
+
+        botaderoMarker.bindPopup(`
+            <div style="font-size:13px;line-height:1.6;min-width:180px;">
+                <div style="background:#ea580c;color:white;padding:10px 14px;margin:-15px -10px 12px -10px;border-radius:4px 4px 0 0;font-weight:bold;">
+                    <i class="fas fa-map-marker-alt mr-2"></i> Botadero
+                </div>
+                <div style="padding:0 5px;">
+                    <p style="margin:6px 0;font-weight:bold;font-size:14px;">${botaderoNombre}</p>
+                    <p style="margin:6px 0;color:#6b7280;font-size:11px;">
+                        <i class="fas fa-location-dot mr-1"></i> 
+                        ${botaderoLat.toFixed(6)}, ${botaderoLng.toFixed(6)}
+                    </p>
+                </div>
+            </div>
+        `);
+
+        // Centrar mapa en el botadero
+        map.setView([botaderoLat, botaderoLng], 15);
+        botaderoMarker.openPopup();
+    }
+
     // Funciones de exportación
     function exportarCSV(id) {
         window.location.href = `/recorridos/${id}/exportar/csv`;
@@ -708,6 +988,40 @@
         
         .leaflet-control-zoom a:hover {
             background-color: #f3f4f6 !important;
+        }
+
+        /* Estilos para paradas */
+        .parada-tooltip {
+            background-color: #fef3c7 !important;
+            border: 2px solid #eab308 !important;
+            color: #92400e !important;
+            font-weight: 600 !important;
+            font-size: 12px !important;
+            padding: 4px 10px !important;
+            border-radius: 6px !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+        }
+
+        .parada-tooltip::before {
+            border-top-color: #eab308 !important;
+        }
+
+        .parada-popup .leaflet-popup-content-wrapper {
+            border-radius: 8px !important;
+            padding: 0 !important;
+            overflow: hidden;
+        }
+
+        .parada-popup .leaflet-popup-content {
+            margin: 0 !important;
+        }
+
+        .parada-marker {
+            transition: transform 0.2s ease;
+        }
+
+        .parada-marker:hover {
+            transform: scale(1.15);
         }
     </style>
 </x-dinamico-layout>

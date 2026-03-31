@@ -30,12 +30,62 @@ class MonitoreoController extends Controller
 
     public function puntos(Recorrido $recorrido)
     {
-        // Devuelve puntos del recorrido en orden
+        // Devuelve puntos del recorrido en orden con tiempo detenido calculado
         $puntos = PuntoRecorrido::where('recorrido_id', $recorrido->id)
             ->orderBy('fecha_gps')
             ->get();
 
-        return response()->json($puntos);
+        if ($puntos->count() < 2) {
+            return response()->json($puntos->map(fn($p) => array_merge($p->toArray(), ['tiempo_detenido' => 0])));
+        }
+
+        $radioParada = 20; // metros
+        $resultado = [];
+
+        for ($i = 0; $i < $puntos->count(); $i++) {
+            $punto = $puntos[$i];
+            $tiempoDetenido = 0;
+
+            if ($i < $puntos->count() - 1) {
+                $puntoSiguiente = $puntos[$i + 1];
+                $fechaActual = \Carbon\Carbon::parse($punto->fecha_gps);
+                $fechaSiguiente = \Carbon\Carbon::parse($puntoSiguiente->fecha_gps);
+                
+                $distancia = $this->haversine(
+                    (float)$punto->lat, (float)$punto->lng,
+                    (float)$puntoSiguiente->lat, (float)$puntoSiguiente->lng
+                );
+
+                if ($distancia <= $radioParada) {
+                    $tiempoDetenido = $fechaActual->diffInSeconds($fechaSiguiente);
+                }
+            }
+
+            $puntoArray = $punto->toArray();
+            $puntoArray['tiempo_detenido'] = $tiempoDetenido;
+            $resultado[] = $puntoArray;
+        }
+
+        return response()->json($resultado);
+    }
+
+    /**
+     * Calcular distancia entre dos puntos usando fórmula Haversine
+     */
+    private function haversine(float $lat1, float $lng1, float $lat2, float $lng2): float
+    {
+        $earthRadius = 6371000; // metros
+        $latFrom = deg2rad($lat1);
+        $latTo = deg2rad($lat2);
+        $latDiff = deg2rad($lat2 - $lat1);
+        $lngDiff = deg2rad($lng2 - $lng1);
+
+        $a = sin($latDiff / 2) * sin($latDiff / 2) +
+             cos($latFrom) * cos($latTo) *
+             sin($lngDiff / 2) * sin($lngDiff / 2);
+
+        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+        return $earthRadius * $c;
     }
 
     public function eventos(Recorrido $recorrido)

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'config.dart';
 import 'gps_background_service.dart';
 
@@ -317,6 +318,11 @@ class _DashboardConductorState extends State<DashboardConductor> {
   Map<String, dynamic>? _descargaActiva;
   int _numeroDescarga = 0;
   String? _horaInicioDescarga;
+  Map<String, dynamic>? _puntoDescarga; // Coordenadas del botadero
+
+  // ========== PARADAS DETECTADAS ==========
+  List<Map<String, dynamic>> _paradas = [];
+  Timer? _paradasTimer;
 
   @override
   void initState() {
@@ -393,6 +399,9 @@ class _DashboardConductorState extends State<DashboardConductor> {
         };
         _routePoints = _extraerPuntosRuta(activo['geometria']);
         _horaInicioRecorrido = _formatearHora(activo['fecha_inicio']);
+        // Guardar punto de descarga (botadero)
+        _puntoDescarga = activo['punto_descarga'];
+        debugPrint('🗑️ Botadero recibido: $_puntoDescarga');
       });
 
       _centrarMapaEnRuta();
@@ -407,7 +416,12 @@ class _DashboardConductorState extends State<DashboardConductor> {
       // Verificar si hay descarga activa
       await _verificarDescargaActiva(token);
 
-      _iniciarGPS();
+      // Cargar paradas detectadas e iniciar actualización periódica
+      _cargarParadas();
+      _iniciarActualizacionParadas();
+
+      // GPS NO se inicia automáticamente - el conductor debe activarlo manualmente
+      // _iniciarGPS();  // REMOVIDO: El GPS debe iniciarse manualmente
     } catch (e) {
       debugPrint('Error cargando recorrido activo: $e');
     }
@@ -546,6 +560,10 @@ class _DashboardConductorState extends State<DashboardConductor> {
       return;
     }
 
+    // Verificar si hay punto de descarga configurado
+    final tieneBotadero = _puntoDescarga != null;
+    final nombreBotadero = _puntoDescarga?['nombre'] ?? 'Botadero';
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -564,9 +582,41 @@ class _DashboardConductorState extends State<DashboardConductor> {
             const Text('Iniciar descarga'),
           ],
         ),
-        content: const Text(
-          'Vas a registrar el inicio de descarga al botadero. '
-          'El GPS seguirá capturando tu ubicación durante el viaje.'
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Vas a registrar el inicio de descarga al botadero. '
+              'El GPS seguirá capturando tu ubicación durante el viaje.'
+            ),
+            if (tieneBotadero) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.place, color: Colors.orange.shade600, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Destino: $nombreBotadero',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Colors.orange.shade800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
         ),
         actions: [
           TextButton(
@@ -625,6 +675,12 @@ class _DashboardConductorState extends State<DashboardConductor> {
           enDescarga: true,
           numeroDescarga: _numeroDescarga,
         );
+
+        // Centrar mapa para mostrar posición actual y botadero
+        if (tieneBotadero) {
+          _centrarMapaEnDescarga();
+          _preguntarAbrirNavegacion();
+        }
       } else {
         _mostrarSnackbar(data['message'] ?? 'Error al iniciar descarga');
       }
@@ -633,6 +689,243 @@ class _DashboardConductorState extends State<DashboardConductor> {
     } finally {
       setState(() => _isLoading = false);
     }
+  }
+
+  /// Pregunta al usuario si quiere abrir Google Maps para navegar al botadero
+  Future<void> _preguntarAbrirNavegacion() async {
+    if (_puntoDescarga == null) return;
+
+    final abrirMaps = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade100,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.navigation, color: Colors.blue.shade600, size: 20),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(child: Text('Abrir navegación')),
+          ],
+        ),
+        content: Text(
+          '¿Quieres abrir Google Maps para navegar hacia "${_puntoDescarga!['nombre'] ?? 'el botadero'}"?'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('NO, GRACIAS'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(context, true),
+            icon: const Icon(Icons.map, size: 18),
+            label: const Text('ABRIR MAPS'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (abrirMaps == true) {
+      _abrirGoogleMapsNavegacion();
+    }
+  }
+
+  /// Abre Google Maps con navegación hacia el punto de descarga
+  Future<void> _abrirGoogleMapsNavegacion() async {
+    if (_puntoDescarga == null) {
+      _mostrarSnackbar('No hay punto de descarga configurado para esta ruta');
+      return;
+    }
+
+    final lat = _puntoDescarga!['lat'];
+    final lng = _puntoDescarga!['lng'];
+    final nombre = _puntoDescarga!['nombre'] ?? 'Botadero';
+
+    // URL para Google Maps con navegación
+    final googleMapsUrl = Uri.parse(
+      'google.navigation:q=$lat,$lng&mode=d'
+    );
+
+    // URL alternativa para el navegador web
+    final webUrl = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving'
+    );
+
+    try {
+      // Intentar abrir Google Maps primero
+      if (await canLaunchUrl(googleMapsUrl)) {
+        await launchUrl(googleMapsUrl);
+      } else if (await canLaunchUrl(webUrl)) {
+        // Si no puede abrir la app, abrir en navegador
+        await launchUrl(webUrl, mode: LaunchMode.externalApplication);
+      } else {
+        _mostrarSnackbar('No se puede abrir Google Maps');
+      }
+    } catch (e) {
+      debugPrint('Error abriendo Maps: $e');
+      _mostrarSnackbar('Error al abrir navegación');
+    }
+  }
+
+  /// Centra el mapa para mostrar la posición actual y el botadero
+  void _centrarMapaEnDescarga() {
+    if (_currentPosition == null || _puntoDescarga == null) return;
+
+    final currentLat = _currentPosition!.latitude;
+    final currentLng = _currentPosition!.longitude;
+    final botaderoLat = (_puntoDescarga!['lat'] as num).toDouble();
+    final botaderoLng = (_puntoDescarga!['lng'] as num).toDouble();
+
+    // Calcular el centro entre los dos puntos
+    final centerLat = (currentLat + botaderoLat) / 2;
+    final centerLng = (currentLng + botaderoLng) / 2;
+
+    // Calcular la distancia para determinar el zoom
+    final distance = Geolocator.distanceBetween(
+      currentLat, currentLng, botaderoLat, botaderoLng
+    );
+
+    // Determinar zoom basado en la distancia
+    double zoom;
+    if (distance < 500) {
+      zoom = 16;
+    } else if (distance < 1000) {
+      zoom = 15;
+    } else if (distance < 2000) {
+      zoom = 14;
+    } else if (distance < 5000) {
+      zoom = 13;
+    } else if (distance < 10000) {
+      zoom = 12;
+    } else {
+      zoom = 11;
+    }
+
+    // Mover el mapa al centro con el zoom calculado
+    _mapController.move(LatLng(centerLat, centerLng), zoom);
+  }
+
+  /// Centra el mapa en el botadero
+  void _centrarEnBotadero() {
+    if (_puntoDescarga == null) return;
+    
+    final botaderoLat = (_puntoDescarga!['lat'] as num).toDouble();
+    final botaderoLng = (_puntoDescarga!['lng'] as num).toDouble();
+    
+    _mapController.move(LatLng(botaderoLat, botaderoLng), 16);
+    _mostrarSnackbar('📍 Botadero: ${_puntoDescarga!['nombre'] ?? 'Botadero'}');
+  }
+
+  /// Muestra información del botadero
+  void _mostrarInfoBotadero() {
+    if (_puntoDescarga == null) return;
+    
+    final nombreBotadero = _puntoDescarga!['nombre'] ?? 'Botadero';
+    final lat = (_puntoDescarga!['lat'] as num).toDouble();
+    final lng = (_puntoDescarga!['lng'] as num).toDouble();
+    
+    // Calcular distancia si tenemos posición actual
+    String distanciaTexto = '';
+    if (_currentPosition != null) {
+      final distancia = Geolocator.distanceBetween(
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+        lat,
+        lng,
+      );
+      if (distancia < 1000) {
+        distanciaTexto = '${distancia.round()} m';
+      } else {
+        distanciaTexto = '${(distancia / 1000).toStringAsFixed(1)} km';
+      }
+    }
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade100,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.delete_rounded, color: Colors.orange.shade600, size: 24),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(child: Text('Botadero')),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              nombreBotadero,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Lat: ${lat.toStringAsFixed(6)}\nLng: ${lng.toStringAsFixed(6)}',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+            ),
+            if (distanciaTexto.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.directions_car, color: Colors.blue.shade700, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Distancia: $distanciaTexto',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: Colors.blue.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CERRAR'),
+          ),
+          if (!_enDescarga)
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                _iniciarDescarga();
+              },
+              icon: const Icon(Icons.local_shipping, size: 18),
+              label: const Text('IR AL BOTADERO'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   /// Finaliza la descarga al botadero
@@ -845,6 +1138,12 @@ class _DashboardConductorState extends State<DashboardConductor> {
           await _cargarGeometriaRuta(_rutaSeleccionadaId!);
         }
 
+        // Obtener punto_descarga de la ruta seleccionada
+        final rutaSelec = _rutas.firstWhere(
+          (r) => r['id'] == _rutaSeleccionadaId,
+          orElse: () => {},
+        );
+        
         setState(() {
           _tieneRecorridoActivo = true;
           _recorridoActivo = {
@@ -852,17 +1151,19 @@ class _DashboardConductorState extends State<DashboardConductor> {
             'camion': _camiones.firstWhere(
               (c) => c['id'] == _camionSeleccionadoId,
             )['placa'],
-            'ruta': _rutas.firstWhere(
-              (r) => r['id'] == _rutaSeleccionadaId,
-            )['nombre'],
+            'ruta': rutaSelec['nombre'] ?? 'Ruta',
             'horario': _horarioSeleccionado,
           };
           _horaInicioRecorrido = _formatearHora(
             DateTime.now().toIso8601String(),
           );
+          // Establecer punto de descarga (botadero) desde la ruta
+          _puntoDescarga = rutaSelec['punto_descarga'];
         });
 
-        _iniciarGPS();
+        // GPS NO se inicia automáticamente - el conductor debe activarlo manualmente
+        // _iniciarGPS();
+        _mostrarSnackbar('✅ Recorrido iniciado. Activa el GPS cuando estés listo.');
       } else {
         _mostrarSnackbar(data['message'] ?? 'Error al iniciar');
       }
@@ -945,6 +1246,7 @@ class _DashboardConductorState extends State<DashboardConductor> {
       if (response.statusCode == 200 && data['success'] == true) {
         await prefs.remove('recorrido_id');
         await _detenerGPS();
+        _paradasTimer?.cancel();
         
         if (mounted) {
           setState(() {
@@ -957,6 +1259,12 @@ class _DashboardConductorState extends State<DashboardConductor> {
             _camionSeleccionadoId = null;
             _rutaSeleccionadaId = null;
             _currentPosition = null;
+            _paradas.clear();
+            _puntoDescarga = null;
+            _enDescarga = false;
+            _descargaActiva = null;
+            _numeroDescarga = 0;
+            _horaInicioDescarga = null;
           });
         }
         
@@ -1161,8 +1469,14 @@ class _DashboardConductorState extends State<DashboardConductor> {
       debugPrint('📍 Respuesta GPS: ${response.statusCode} - ${response.body}');
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        if (mounted) setState(() => _puntosEnviados++);
-        debugPrint('✅ GPS enviado correctamente. Total puntos: $_puntosEnviados');
+        final data = jsonDecode(response.body);
+        // Solo incrementar si el punto realmente se guardó (no omitido)
+        if (data['message'] == 'Punto guardado') {
+          if (mounted) setState(() => _puntosEnviados++);
+          debugPrint('✅ GPS guardado. Total puntos: $_puntosEnviados');
+        } else {
+          debugPrint('⏭️ Punto omitido (distancia < 10m)');
+        }
       } else {
         debugPrint('❌ Error del servidor: ${response.statusCode} - ${response.body}');
         // Mostrar error al usuario si es un error crítico
@@ -1288,6 +1602,155 @@ class _DashboardConductorState extends State<DashboardConductor> {
     }
   }
 
+  // ========== PARADAS DETECTADAS ==========
+
+  /// Inicia la actualización periódica de paradas cada 30 segundos
+  void _iniciarActualizacionParadas() {
+    _paradasTimer?.cancel();
+    _paradasTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      _cargarParadas();
+    });
+  }
+
+  /// Carga las paradas detectadas del servidor
+  Future<void> _cargarParadas() async {
+    if (!_tieneRecorridoActivo) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      if (token == null) return;
+
+      final response = await http.get(
+        Uri.parse('${Config.baseUrl}/conductor/recorrido/paradas'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode != 200) return;
+
+      final data = jsonDecode(response.body);
+      if (data['success'] != true) return;
+
+      final List<dynamic> paradasData = data['data'] ?? [];
+
+      if (!mounted) return;
+      setState(() {
+        _paradas = paradasData.map((p) => Map<String, dynamic>.from(p)).toList();
+      });
+
+      debugPrint('⏱️ Paradas cargadas: ${_paradas.length}');
+    } catch (e) {
+      debugPrint('Error cargando paradas: $e');
+    }
+  }
+
+  /// Muestra información de una parada específica
+  void _mostrarInfoParada(Map<String, dynamic> parada, int index) {
+    final lat = (parada['lat'] as num).toDouble();
+    final lng = (parada['lng'] as num).toDouble();
+    final duracion = parada['duracion'] ?? 'N/A';
+    final inicio = parada['inicio'] ?? 'N/A';
+    final fin = parada['fin'] ?? 'N/A';
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade100,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.timer, color: Colors.amber.shade700, size: 24),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '⏱️ Parada #${index + 1}',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Duración destacada
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.amber.shade200),
+              ),
+              child: Column(
+                children: [
+                  const Text('Tiempo detenido', style: TextStyle(color: Colors.black54, fontSize: 13)),
+                  const SizedBox(height: 4),
+                  Text(
+                    duracion,
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.amber.shade800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Horarios
+            _infoRow(Icons.play_circle_outline, 'Inicio', inicio, Colors.green),
+            const SizedBox(height: 8),
+            _infoRow(Icons.stop_circle_outlined, 'Fin', fin, Colors.red),
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 8),
+            // Coordenadas
+            Text(
+              '📍 Lat: ${lat.toStringAsFixed(6)}',
+              style: const TextStyle(fontSize: 13, color: Colors.black54),
+            ),
+            Text(
+              '📍 Lng: ${lng.toStringAsFixed(6)}',
+              style: const TextStyle(fontSize: 13, color: Colors.black54),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              _mapController.move(LatLng(lat, lng), 18);
+            },
+            icon: const Icon(Icons.center_focus_strong),
+            label: const Text('Centrar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(IconData icon, String label, String value, Color color) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: color),
+        const SizedBox(width: 8),
+        Text('$label: ', style: const TextStyle(color: Colors.black54)),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+      ],
+    );
+  }
+
   Future<bool> _determinarPosicion() async {
     debugPrint('🔐 Verificando permisos de ubicación...');
     
@@ -1400,6 +1863,7 @@ class _DashboardConductorState extends State<DashboardConductor> {
   @override
   void dispose() {
     _gpsSubscription?.cancel();
+    _paradasTimer?.cancel();
     super.dispose();
   }
 
@@ -1662,38 +2126,69 @@ class _DashboardConductorState extends State<DashboardConductor> {
                   // Ruta
                   Text('Ruta asignada', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.grey.shade700)),
                   const SizedBox(height: 8),
-                  DropdownButtonFormField<int>(
-                    value: _rutaSeleccionadaId,
-                    items: _rutas.map<DropdownMenuItem<int>>((ruta) {
-                      return DropdownMenuItem<int>(
-                        value: ruta['id'] as int,
-                        child: Text('${ruta['nombre']} (${ruta['horario']['inicio']} - ${ruta['horario']['fin']})'),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        _rutaSeleccionadaId = value;
-                        if (value != null) {
-                          _horarioSeleccionado = _rutas.firstWhere((r) => r['id'] == value)['horario'];
-                        }
-                      });
-                    },
-                    decoration: InputDecoration(
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                      enabledBorder: OutlineInputBorder(
+                  if (_rutas.isEmpty && _camionSeleccionadoId != null)
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade50,
                         borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide(color: Colors.grey.shade200),
+                        border: Border.all(color: Colors.amber.shade200),
                       ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: const BorderSide(color: Color(0xFF1e40af), width: 1.5),
+                      child: Row(
+                        children: [
+                          Icon(Icons.schedule_rounded, color: Colors.amber.shade700, size: 24),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Sin rutas disponibles',
+                                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amber.shade800)),
+                                const SizedBox(height: 4),
+                                Text('No hay rutas programadas para este horario.',
+                                  style: TextStyle(fontSize: 12, color: Colors.amber.shade700)),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      filled: true,
-                      fillColor: Colors.grey.shade50,
-                      prefixIcon: const Icon(Icons.route_rounded, color: Color(0xFF1e40af)),
+                    )
+                  else
+                    DropdownButtonFormField<int>(
+                      value: _rutaSeleccionadaId,
+                      items: _rutas.map<DropdownMenuItem<int>>((ruta) {
+                        final horario = ruta['horario'];
+                        final horaInicio = horario?['inicio'] ?? '--:--';
+                        final horaFin = horario?['fin'] ?? '--:--';
+                        return DropdownMenuItem<int>(
+                          value: ruta['id'] as int,
+                          child: Text('${ruta['nombre']} ($horaInicio - $horaFin)'),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        setState(() {
+                          _rutaSeleccionadaId = value;
+                          if (value != null) {
+                            _horarioSeleccionado = _rutas.firstWhere((r) => r['id'] == value)['horario'];
+                          }
+                        });
+                      },
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(color: Colors.grey.shade200),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: Color(0xFF1e40af), width: 1.5),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey.shade50,
+                        prefixIcon: const Icon(Icons.route_rounded, color: Color(0xFF1e40af)),
+                      ),
+                      hint: const Text('-- Primero selecciona un camión --'),
                     ),
-                    hint: const Text('-- Primero selecciona un camión --'),
-                  ),
 
                   if (_horarioSeleccionado != null) ...[  
                     const SizedBox(height: 16),
@@ -1857,6 +2352,24 @@ class _DashboardConductorState extends State<DashboardConductor> {
                     isDotted: true),
                 ],
               ),
+            // Línea punteada hacia el botadero cuando está en descarga
+            if (_enDescarga && _puntoDescarga != null && _currentPosition != null)
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: [
+                      LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+                      LatLng(
+                        (_puntoDescarga!['lat'] as num).toDouble(),
+                        (_puntoDescarga!['lng'] as num).toDouble(),
+                      ),
+                    ],
+                    color: Colors.orange,
+                    strokeWidth: 3,
+                    isDotted: true,
+                  ),
+                ],
+              ),
             if (_routePoints.isNotEmpty)
               MarkerLayer(
                 markers: [
@@ -1888,6 +2401,66 @@ class _DashboardConductorState extends State<DashboardConductor> {
                   ),
                 ],
               ),
+            // Marcadores de paradas detectadas (amarillo/ámbar)
+            if (_paradas.isNotEmpty)
+              MarkerLayer(
+                markers: _paradas.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final parada = entry.value;
+                  final lat = (parada['lat'] as num).toDouble();
+                  final lng = (parada['lng'] as num).toDouble();
+                  final duracion = parada['duracion'] ?? '';
+                  
+                  return Marker(
+                    point: LatLng(lat, lng),
+                    width: 50, height: 50,
+                    child: GestureDetector(
+                      onTap: () => _mostrarInfoParada(parada, index),
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: Colors.amber.shade600,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2.5),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.amber.withOpacity(.5),
+                                  blurRadius: 8,
+                                  spreadRadius: 1,
+                                ),
+                              ],
+                            ),
+                            child: const Icon(Icons.timer, color: Colors.white, size: 18),
+                          ),
+                          // Tooltip con duración
+                          Positioned(
+                            bottom: 0,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.shade800,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                duracion,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
             if (_currentPosition != null)
               MarkerLayer(
                 markers: [
@@ -1908,8 +2481,174 @@ class _DashboardConductorState extends State<DashboardConductor> {
                   ),
                 ],
               ),
+            // Marcador del botadero (naranja)
+            if (_puntoDescarga != null)
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    point: LatLng(
+                      (_puntoDescarga!['lat'] as num).toDouble(),
+                      (_puntoDescarga!['lng'] as num).toDouble(),
+                    ),
+                    width: 48, height: 48,
+                    child: GestureDetector(
+                      onTap: _mostrarInfoBotadero,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: _enDescarga ? Colors.orange : Colors.orange.shade400,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 3),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.orange.withOpacity(_enDescarga ? .6 : .3),
+                              blurRadius: _enDescarga ? 16 : 8,
+                              spreadRadius: _enDescarga ? 3 : 1,
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.delete_rounded,
+                          color: Colors.white,
+                          size: _enDescarga ? 24 : 20,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
           ],
         ),
+
+        // ── Banner de GPS apagado ──
+        if (!_gpsActivo)
+          Positioned(
+            top: 0, left: 0, right: 0,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade600,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: SafeArea(
+                bottom: false,
+                child: Row(
+                  children: [
+                    Icon(Icons.gps_off, color: Colors.white, size: 22),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Text('GPS Apagado',
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                          Text('Abre el menú lateral para activar la transmisión',
+                            style: TextStyle(color: Colors.white70, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+                      icon: const Icon(Icons.menu, size: 18),
+                      label: const Text('Activar'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.amber.shade700,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+        // ── Botón flotante para ver/ir al botadero ──
+        if (_puntoDescarga != null && !_enDescarga)
+          Positioned(
+            top: _gpsActivo ? 16 : 90, right: 16,
+            child: Column(
+              children: [
+                FloatingActionButton.small(
+                  heroTag: 'btn_botadero',
+                  backgroundColor: Colors.orange,
+                  onPressed: _centrarEnBotadero,
+                  tooltip: 'Ver Botadero',
+                  child: const Icon(Icons.delete_rounded, color: Colors.white, size: 20),
+                ),
+                const SizedBox(height: 8),
+                FloatingActionButton.small(
+                  heroTag: 'btn_centrar',
+                  backgroundColor: Colors.blue.shade700,
+                  onPressed: () {
+                    if (_currentPosition != null) {
+                      _mapController.move(
+                        LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+                        16,
+                      );
+                    }
+                  },
+                  tooltip: 'Centrar en mi posición',
+                  child: const Icon(Icons.my_location, color: Colors.white, size: 20),
+                ),
+              ],
+            ),
+          ),
+
+        // ── Botón de descarga al botadero en la parte inferior ──
+        if (_puntoDescarga != null && !_enDescarga)
+          Positioned(
+            bottom: 100, left: 16, right: 16,
+            child: ElevatedButton.icon(
+              onPressed: _iniciarDescarga,
+              icon: const Icon(Icons.local_shipping, size: 20),
+              label: Text(
+                'IR AL BOTADERO · ${_puntoDescarga!['nombre'] ?? 'Botadero'}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 6,
+                shadowColor: Colors.orange.withOpacity(0.5),
+              ),
+            ),
+          ),
+
+        // ── Botón para continuar ruta (cuando está en descarga) ──
+        if (_enDescarga)
+          Positioned(
+            bottom: 100, left: 16, right: 16,
+            child: ElevatedButton.icon(
+              onPressed: _finalizarDescarga,
+              icon: const Icon(Icons.play_arrow, size: 20),
+              label: Text(
+                'DESCARGA #$_numeroDescarga EN CURSO · CONTINUAR RUTA',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 6,
+                shadowColor: Colors.green.withOpacity(0.5),
+              ),
+            ),
+          ),
 
         // ── Overlay info GPS ──
         Positioned(

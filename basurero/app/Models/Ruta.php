@@ -20,7 +20,7 @@ class Ruta extends Model
     public function camiones()
     {
         return $this->belongsToMany(Camion::class, 'ruta_camion')
-            ->withPivot('activa')
+            ->withPivot(['id', 'activa', 'hora_inicio', 'hora_fin', 'dias_semana'])
             ->withTimestamps();
     }
 

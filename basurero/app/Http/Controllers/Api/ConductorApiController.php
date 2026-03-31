@@ -88,6 +88,16 @@ class ConductorApiController extends Controller
             ->get()
             ->keyBy('ruta_camion_id');
 
+        // Obtener botadero global
+        $botaderoLat = Configuracion::obtener('botadero_lat', '');
+        $botaderoLng = Configuracion::obtener('botadero_lng', '');
+        $botaderoNombre = Configuracion::obtener('botadero_nombre', 'Botadero');
+        $botaderoGlobal = ($botaderoLat && $botaderoLng) ? [
+            'lat' => (float) $botaderoLat,
+            'lng' => (float) $botaderoLng,
+            'nombre' => $botaderoNombre,
+        ] : null;
+
         $rutas = collect();
 
         foreach ($camiones as $camion) {
@@ -101,8 +111,17 @@ class ConductorApiController extends Controller
                 $programadaHoy = $horarioDia || in_array($diaHoy, $dias);
 
                 if ($programadaHoy) {
-                    // Obtener hora_fin efectiva y filtrar rutas ya finalizadas
+                    // Obtener horarios efectivos
+                    $horaInicio = $horarioDia?->hora_inicio ?? $ruta->pivot->hora_inicio;
                     $horaFin = $horarioDia?->hora_fin ?? $ruta->pivot->hora_fin;
+                    
+                    // Filtrar rutas fuera de horario
+                    // Si tiene hora_inicio y aún no ha comenzado, no mostrar
+                    if ($horaInicio && $horaActual < $horaInicio) {
+                        continue; // La ruta aún no comienza
+                    }
+                    
+                    // Si tiene hora_fin y ya terminó, no mostrar
                     if ($horaFin && $horaActual > $horaFin) {
                         continue; // La ruta ya terminó su horario
                     }
@@ -113,16 +132,17 @@ class ConductorApiController extends Controller
                         'camion_id' => $camion->id,
                         'camion_placa' => $camion->placa,
                         'horario' => [
-                            'inicio' => $horarioDia?->hora_inicio ?? $ruta->pivot->hora_inicio,
+                            'inicio' => $horaInicio,
                             'fin' => $horaFin,
                         ],
                         'tolerancia' => $ruta->tolerancia_metros,
                         'geometria' => json_decode($ruta->geometria_geojson),
+                        'punto_descarga' => $botaderoGlobal,
                     ]);
                 }
             }
         }
-        
+
         return response()->json([
             'success' => true,
             'data' => $rutas->values()
@@ -164,6 +184,35 @@ class ConductorApiController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Esta ruta no está asignada al camión'
+            ], 400);
+        }
+
+        // Verificar horario de la ruta
+        $diaHoy = strtolower(now()->locale('es')->dayName);
+        $diaHoy = strtr($diaHoy, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u']);
+        $horaActual = now()->format('H:i:s');
+
+        // Buscar horario específico del día
+        $horarioDia = HorarioDia::where('ruta_camion_id', $rutaAsignada->pivot->id)
+            ->where('dia', $diaHoy)
+            ->where('activo', true)
+            ->first();
+
+        $horaInicio = $horarioDia?->hora_inicio ?? $rutaAsignada->pivot->hora_inicio;
+        $horaFin = $horarioDia?->hora_fin ?? $rutaAsignada->pivot->hora_fin;
+
+        // Validar que esté dentro del horario
+        if ($horaInicio && $horaActual < $horaInicio) {
+            return response()->json([
+                'success' => false,
+                'message' => "La ruta inicia a las {$horaInicio}. Aún no puedes comenzar."
+            ], 400);
+        }
+
+        if ($horaFin && $horaActual > $horaFin) {
+            return response()->json([
+                'success' => false,
+                'message' => "El horario de esta ruta finalizó a las {$horaFin}."
             ], 400);
         }
 
@@ -268,6 +317,16 @@ class ConductorApiController extends Controller
             ? json_decode($recorrido->ruta->geometria_geojson, true)
             : null;
 
+        // Obtener botadero global
+        $botaderoLat = Configuracion::obtener('botadero_lat', '');
+        $botaderoLng = Configuracion::obtener('botadero_lng', '');
+        $botaderoNombre = Configuracion::obtener('botadero_nombre', 'Botadero');
+        $puntoDescarga = ($botaderoLat && $botaderoLng) ? [
+            'lat' => (float) $botaderoLat,
+            'lng' => (float) $botaderoLng,
+            'nombre' => $botaderoNombre,
+        ] : null;
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -278,6 +337,7 @@ class ConductorApiController extends Controller
                 'ruta' => $recorrido->ruta?->nombre,
                 'fecha_inicio' => optional($recorrido->fecha_inicio)->toIso8601String(),
                 'geometria' => $geometria,
+                'punto_descarga' => $puntoDescarga,
             ],
         ]);
     }
@@ -710,6 +770,117 @@ class ConductorApiController extends Controller
                 'lng_inicio' => $descarga->lng_inicio,
             ],
         ]);
+    }
+
+    /**
+     * Obtener paradas del recorrido activo
+     * GET /conductor/recorrido/paradas
+     * Una parada es cuando el camión está en el mismo lugar (< 20m) por más de 2 minutos
+     */
+    public function getParadas(Request $request)
+    {
+        $user = $request->user();
+
+        $recorrido = Recorrido::where('conductor_id', $user->id)
+            ->where('estado', 'en_curso')
+            ->latest('id')
+            ->first();
+
+        if (!$recorrido) {
+            return response()->json([
+                'success' => true,
+                'data' => []
+            ]);
+        }
+
+        $puntos = $recorrido->puntos()
+            ->orderBy('fecha_gps')
+            ->get(['lat', 'lng', 'fecha_gps']);
+
+        if ($puntos->count() < 2) {
+            return response()->json([
+                'success' => true,
+                'data' => []
+            ]);
+        }
+
+        $paradas = [];
+        $radioParada = 20; // metros - distancia máxima para considerar mismo lugar
+        $tiempoMinimo = 120; // segundos - tiempo mínimo para considerar parada (2 min)
+
+        $i = 0;
+        while ($i < $puntos->count()) {
+            $puntoInicio = $puntos[$i];
+            $latInicio = (float) $puntoInicio->lat;
+            $lngInicio = (float) $puntoInicio->lng;
+            $fechaInicio = \Carbon\Carbon::parse($puntoInicio->fecha_gps);
+
+            // Buscar puntos consecutivos cercanos
+            $j = $i + 1;
+            $fechaFin = $fechaInicio;
+
+            while ($j < $puntos->count()) {
+                $puntoCurrent = $puntos[$j];
+                $latCurrent = (float) $puntoCurrent->lat;
+                $lngCurrent = (float) $puntoCurrent->lng;
+
+                // Calcular distancia usando Haversine
+                $distancia = Geo::haversine($latInicio, $lngInicio, $latCurrent, $lngCurrent);
+
+                if ($distancia <= $radioParada) {
+                    // Sigue en el mismo lugar
+                    $fechaFin = \Carbon\Carbon::parse($puntoCurrent->fecha_gps);
+                    $j++;
+                } else {
+                    // Se movió
+                    break;
+                }
+            }
+
+            // Calcular tiempo de parada
+            $segundosDetenido = $fechaInicio->diffInSeconds($fechaFin);
+
+            if ($segundosDetenido >= $tiempoMinimo) {
+                $paradas[] = [
+                    'lat' => $latInicio,
+                    'lng' => $lngInicio,
+                    'inicio' => $fechaInicio->format('H:i:s'),
+                    'fin' => $fechaFin->format('H:i:s'),
+                    'segundos' => $segundosDetenido,
+                    'duracion' => $this->formatearDuracionParada($segundosDetenido),
+                ];
+            }
+
+            // Avanzar al siguiente grupo
+            $i = $j > $i ? $j : $i + 1;
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $paradas
+        ]);
+    }
+
+    /**
+     * Formatear duración de parada en texto legible
+     */
+    private function formatearDuracionParada(int $segundos): string
+    {
+        if ($segundos < 60) {
+            return "{$segundos}s";
+        }
+
+        $minutos = floor($segundos / 60);
+        $seg = $segundos % 60;
+
+        if ($minutos < 60) {
+            return $seg > 0 ? "{$minutos}min {$seg}s" : "{$minutos}min";
+        }
+
+        $horas = floor($minutos / 60);
+        $min = $minutos % 60;
+
+        return $min > 0 ? "{$horas}h {$min}min" : "{$horas}h";
     }
 
     /**

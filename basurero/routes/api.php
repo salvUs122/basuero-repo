@@ -13,6 +13,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/conductor/rutas-hoy', [App\Http\Controllers\Api\ConductorApiController::class, 'getRutasHoy']);
     Route::get('/conductor/recorrido/activo', [App\Http\Controllers\Api\ConductorApiController::class, 'getRecorridoActivo']);
     Route::get('/conductor/recorrido/puntos', [App\Http\Controllers\Api\ConductorApiController::class, 'getPuntosRecorridoActivo']);
+    Route::get('/conductor/recorrido/paradas', [App\Http\Controllers\Api\ConductorApiController::class, 'getParadas']);
     Route::post('/conductor/recorrido/iniciar', [App\Http\Controllers\Api\ConductorApiController::class, 'iniciarRecorrido']);
     Route::post('/conductor/recorrido/finalizar', [App\Http\Controllers\Api\ConductorApiController::class, 'finalizarRecorrido']);
     Route::post('/conductor/gps', [App\Http\Controllers\Api\ConductorApiController::class, 'guardarGps']);

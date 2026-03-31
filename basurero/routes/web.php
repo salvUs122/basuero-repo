@@ -136,6 +136,11 @@ Route::middleware(['auth', 'role:administrador|encargado'])->group(function () {
         Route::put('/{id}', [RutaController::class, 'update'])->name('update');
         Route::delete('/{id}', [RutaController::class, 'destroy'])->name('destroy');
     });
+
+    // ===== CONFIGURACIÓN DEL BOTADERO (GLOBAL) =====
+    Route::get('/botadero', [RutaController::class, 'getBotadero'])->name('botadero.get');
+    Route::post('/botadero', [RutaController::class, 'saveBotadero'])->name('botadero.save');
+    Route::delete('/botadero', [RutaController::class, 'deleteBotadero'])->name('botadero.delete');
     
     // ===== MONITOREO EN VIVO =====
     Route::prefix('monitoreo')->name('monitoreo.')->group(function () {
@@ -151,6 +156,7 @@ Route::middleware(['auth', 'role:administrador|encargado'])->group(function () {
         Route::get('/{recorrido}', [RecorridosAdminController::class, 'show'])->name('show.historial');
         Route::get('/{recorrido}/detalle', [RecorridoController::class, 'show'])->name('show');
         Route::get('/{recorrido}/puntos', [RecorridoController::class, 'puntos'])->name('puntos');
+        Route::get('/{recorrido}/paradas', [RecorridoController::class, 'paradas'])->name('paradas');
         Route::get('/{recorrido}/descargas/{descarga}/puntos', [RecorridoController::class, 'puntosDescarga'])->name('descarga.puntos');
 
         // Exportaciones

@@ -258,6 +258,32 @@
                         // Agregar marcador para el último punto
                         const ultimoPunto = recorrido.puntos[recorrido.puntos.length - 1];
                         if (ultimoPunto) {
+                            // Calcular tiempo detenido para recorridos activos
+                            let tiempoDetenidoHtml = '';
+                            if (ultimoPunto.tiempo_detenido && ultimoPunto.tiempo_detenido > 30) {
+                                // También verificar tiempo desde el último punto hasta ahora
+                                const ahora = new Date();
+                                const ultimaHora = new Date(ultimoPunto.fecha_gps);
+                                const segundosDetenido = Math.floor((ahora - ultimaHora) / 1000);
+                                
+                                if (segundosDetenido > 30) {
+                                    let duracion = '';
+                                    if (segundosDetenido < 60) {
+                                        duracion = `${segundosDetenido} seg`;
+                                    } else if (segundosDetenido < 3600) {
+                                        const min = Math.floor(segundosDetenido / 60);
+                                        const seg = segundosDetenido % 60;
+                                        duracion = seg > 0 ? `${min} min ${seg} seg` : `${min} min`;
+                                    } else {
+                                        const hrs = Math.floor(segundosDetenido / 3600);
+                                        const min = Math.floor((segundosDetenido % 3600) / 60);
+                                        duracion = min > 0 ? `${hrs}h ${min}min` : `${hrs}h`;
+                                    }
+                                    const colorTiempo = segundosDetenido >= 120 ? '#dc2626' : '#ca8a04';
+                                    tiempoDetenidoHtml = `<span style="color:${colorTiempo};font-weight:bold;"><i class="fas fa-pause-circle mr-1"></i>Detenido: ${duracion}</span><br>`;
+                                }
+                            }
+                            
                             markers[recorrido.recorrido_id] = L.marker(
                                 [parseFloat(ultimoPunto.lat), parseFloat(ultimoPunto.lng)], 
                                 {
@@ -280,7 +306,8 @@
                                     <i class="fas fa-route mr-1"></i>${recorrido.ruta}<br>
                                     <i class="fas fa-clock mr-1"></i>${new Date(ultimoPunto.fecha_gps).toLocaleTimeString('es-BO', {timeZone:'America/La_Paz', hour:'2-digit', minute:'2-digit', second:'2-digit'})}<br>
                                     <i class="fas fa-map-marker mr-1"></i>${recorrido.total_puntos} puntos<br>
-                                    ${ultimoPunto.velocidad_mps ? `<i class="fas fa-tachometer-alt mr-1"></i>${(ultimoPunto.velocidad_mps * 3.6).toFixed(1)} km/h` : ''}
+                                    ${ultimoPunto.velocidad_mps ? `<i class="fas fa-tachometer-alt mr-1"></i>${(ultimoPunto.velocidad_mps * 3.6).toFixed(1)} km/h<br>` : ''}
+                                    ${tiempoDetenidoHtml}
                                 </div>
                             `);
                         }
