@@ -622,16 +622,16 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert(data.message);
+                showToast('success', '¡Botadero eliminado!', data.message || 'La ubicación del botadero ha sido eliminada.');
                 cerrarModalEliminarBotadero();
                 location.reload();
             } else {
-                alert(data.message || 'Error al eliminar');
+                showToast('error', 'No se pudo eliminar', data.message || 'Ocurrió un error al eliminar el botadero.');
             }
         })
         .catch(error => {
             console.error('Error:', error);
-            alert('Error al eliminar la ubicación del botadero.');
+            showToast('error', 'Error de conexión', 'No se pudo conectar con el servidor.');
         })
         .finally(() => {
             btnEliminar.disabled = false;
@@ -641,13 +641,13 @@
 
     function guardarBotadero() {
         if (!botaderoLat || !botaderoLng) {
-            alert('Por favor, marca una ubicacion en el mapa.');
+            showToast('warning', 'Ubicación requerida', 'Por favor, marca una ubicación en el mapa haciendo clic sobre él.');
             return;
         }
 
         const nombre = document.getElementById('botadero-nombre').value.trim();
         if (!nombre) {
-            alert('Por favor, ingresa un nombre para el botadero.');
+            showToast('warning', 'Nombre requerido', 'Por favor, ingresa un nombre para identificar el botadero.');
             return;
         }
 
@@ -671,7 +671,6 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                // Actualizar estado visual
                 const estadoDiv = document.getElementById('estado-botadero');
                 estadoDiv.className = 'mb-4 p-3 rounded-lg bg-green-50 border border-green-200';
                 estadoDiv.innerHTML = `
@@ -681,15 +680,15 @@
                     </p>
                 `;
 
-                alert(data.message);
+                showToast('success', '¡Botadero guardado!', data.message || 'La ubicación del botadero se guardó correctamente.');
                 cerrarModalBotadero();
             } else {
-                alert(data.message || 'Error al guardar');
+                showToast('error', 'Error al guardar', data.message || 'No se pudo guardar la ubicación.');
             }
         })
         .catch(error => {
             console.error('Error:', error);
-            alert('Error al guardar la ubicacion del botadero.');
+            showToast('error', 'Error de conexión', 'No se pudo conectar con el servidor.');
         })
         .finally(() => {
             btnGuardar.disabled = false;
@@ -711,17 +710,17 @@
         .then(data => {
             if (data.success) {
                 document.getElementById(`ruta-${rutaAEliminar}`).remove();
-                alert(data.message);
+                showToast('success', '¡Ruta eliminada!', data.message || 'La ruta ha sido eliminada correctamente.');
                 if (document.querySelectorAll('tbody tr').length === 0) {
                     location.reload();
                 }
             } else {
-                alert(data.message);
+                showToast('error', 'No se pudo eliminar', data.message || 'Ocurrió un error al eliminar la ruta.');
             }
             cerrarModalEliminar();
         })
         .catch(error => {
-            alert('Error al eliminar la ruta');
+            showToast('error', 'Error de conexión', 'No se pudo conectar con el servidor.');
             cerrarModalEliminar();
         });
     });

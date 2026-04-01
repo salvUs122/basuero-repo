@@ -282,14 +282,17 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                window.location.href = "{{ route('rutas.index') }}";
+                showToast('success', '¡Ruta eliminada!', 'La ruta ha sido eliminada. Redirigiendo...');
+                setTimeout(() => {
+                    window.location.href = "{{ route('rutas.index') }}";
+                }, 1500);
             } else {
-                alert(data.message);
+                showToast('error', 'No se pudo eliminar', data.message || 'Ocurrió un error al eliminar la ruta.');
             }
             cerrarModalEliminar();
         })
         .catch(error => {
-            alert('Error al eliminar la ruta');
+            showToast('error', 'Error de conexión', 'No se pudo conectar con el servidor.');
             cerrarModalEliminar();
         });
     });

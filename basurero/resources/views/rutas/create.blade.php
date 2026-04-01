@@ -423,7 +423,7 @@
         btnGuardarDibujo.addEventListener('click', function() {
             const feature = buildGeoJsonFromDrawn();
             if (!feature) {
-                alert('Primero dibuja EXACTAMENTE 1 linea (ruta) y luego presiona Guardar dibujo.');
+                showToast('warning', 'Dibujo requerido', 'Primero dibuja exactamente 1 línea (ruta) y luego presiona Guardar dibujo.');
                 pintarEstadoFalta();
                 return;
             }
@@ -432,6 +432,7 @@
             inputGeojson.value = JSON.stringify(feature.geometry);
             pintarEstadoOk(feature);
             estadoHerramienta.textContent = 'Dibujo guardado en el formulario';
+            showToast('success', '¡Dibujo guardado!', 'La ruta ha sido guardada. Ahora puedes completar el formulario.');
         });
 
         btnLimpiar.addEventListener('click', function() {
@@ -459,7 +460,7 @@
         formRuta.addEventListener('submit', function (e) {
             if (!inputGeojson.value) {
                 e.preventDefault();
-                alert('Debes dibujar una ruta y presionar "Guardar dibujo" antes de guardar la ruta.');
+                showToast('warning', 'Falta el dibujo', 'Debes dibujar una ruta y presionar "Guardar dibujo" antes de guardar.');
                 estadoDibujo.scrollIntoView({ behavior: 'smooth' });
                 return false;
             }

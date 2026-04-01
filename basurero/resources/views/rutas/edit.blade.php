@@ -240,7 +240,7 @@
         document.getElementById('form-ruta').addEventListener('submit', function(e) {
             if (!inputGeojson.value) {
                 e.preventDefault();
-                alert('Debes dibujar una ruta en el mapa antes de guardar.');
+                showToast('warning', 'Falta el dibujo', 'Debes dibujar una ruta en el mapa antes de guardar.');
             }
         });
     });

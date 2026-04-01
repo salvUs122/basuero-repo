@@ -261,14 +261,14 @@ document.getElementById('btn-confirmar-eliminar')?.addEventListener('click', fun
     .then(data => {
         if (data.success) {
             document.getElementById(`conductor-${conductorAEliminar}`).remove();
-            alert(data.message);
+            showToast('success', '¡Conductor eliminado!', data.message || 'El conductor ha sido eliminado correctamente.');
         } else {
-            alert(data.message);
+            showToast('error', 'No se pudo eliminar', data.message || 'Ocurrió un error al intentar eliminar el conductor.');
         }
         cerrarModalEliminar();
     })
     .catch(error => {
-        alert('Error al eliminar conductor');
+        showToast('error', 'Error de conexión', 'No se pudo conectar con el servidor. Intenta nuevamente.');
         cerrarModalEliminar();
     });
 });

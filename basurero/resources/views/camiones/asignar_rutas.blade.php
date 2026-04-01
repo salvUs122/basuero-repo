@@ -31,9 +31,156 @@
             overflow-x: hidden;
             overflow-y: visible !important;
         }
+        
+        /* Estilos para Toast Notifications */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .toast {
+            display: flex;
+            align-items: center;
+            padding: 16px 20px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            transform: translateX(120%);
+            opacity: 0;
+            transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            max-width: 400px;
+            min-width: 300px;
+        }
+        
+        .toast.show {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        
+        .toast.hiding {
+            transform: translateX(120%);
+            opacity: 0;
+        }
+        
+        .toast-success {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+        }
+        
+        .toast-error {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+        }
+        
+        .toast-warning {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+        }
+        
+        .toast-info {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+        }
+        
+        .toast-icon {
+            font-size: 1.5rem;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+        
+        .toast-content {
+            flex: 1;
+        }
+        
+        .toast-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+            margin-bottom: 2px;
+        }
+        
+        .toast-message {
+            font-size: 0.85rem;
+            opacity: 0.9;
+        }
+        
+        .toast-close {
+            background: none;
+            border: none;
+            color: white;
+            opacity: 0.7;
+            cursor: pointer;
+            padding: 4px;
+            margin-left: 8px;
+            transition: opacity 0.2s;
+        }
+        
+        .toast-close:hover {
+            opacity: 1;
+        }
+        
+        .toast-progress {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.4);
+            border-radius: 0 0 12px 12px;
+            animation: toast-progress 4s linear forwards;
+        }
+        
+        @keyframes toast-progress {
+            from { width: 100%; }
+            to { width: 0%; }
+        }
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
+    <!-- Contenedor de Toast Notifications -->
+    <div id="toast-container" class="toast-container"></div>
+    
+    <!-- Script de Toast Notifications -->
+    <script>
+        function showToast(type, title, message, duration = 4000) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            
+            const icons = {
+                success: 'fas fa-check-circle',
+                error: 'fas fa-exclamation-circle',
+                warning: 'fas fa-exclamation-triangle',
+                info: 'fas fa-info-circle'
+            };
+            
+            toast.innerHTML = `
+                <i class="${icons[type]} toast-icon"></i>
+                <div class="toast-content">
+                    <div class="toast-title">${title}</div>
+                    <div class="toast-message">${message}</div>
+                </div>
+                <button class="toast-close" onclick="this.parentElement.classList.add('hiding'); setTimeout(() => this.parentElement.remove(), 400);">
+                    <i class="fas fa-times"></i>
+                </button>
+                <div class="toast-progress"></div>
+            `;
+            
+            container.appendChild(toast);
+            
+            // Trigger animation
+            setTimeout(() => toast.classList.add('show'), 10);
+            
+            // Auto remove
+            setTimeout(() => {
+                toast.classList.add('hiding');
+                setTimeout(() => toast.remove(), 400);
+            }, duration);
+        }
+    </script>
+
     <!-- Barra de navegación -->
     <nav class="bg-white shadow-sm border-b">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -335,6 +482,7 @@
 
                                             <!-- Botón para configurar horarios por día -->
                                             <div class="mt-4">
+                                                @if($pivotId)
                                                 <button type="button" 
                                                         onclick="abrirModalHorarios({{ $ruta->id }}, '{{ $ruta->nombre }}', '{{ $horaInicio }}', '{{ $horaFin }}', '{{ $pivotId }}')"
                                                         class="w-full bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 
@@ -347,6 +495,28 @@
                                                     <i class="fas fa-clock mr-1"></i>
                                                     Define horarios diferentes para cada día de la semana
                                                 </p>
+                                                @else
+                                                <div class="w-full bg-gradient-to-r from-gray-200 to-gray-300 
+                                                            text-gray-600 font-medium py-2 px-4 rounded-lg 
+                                                            flex items-center justify-center cursor-not-allowed opacity-75">
+                                                    <i class="fas fa-calendar-alt mr-2"></i>
+                                                    Configurar Horarios Específicos por Día
+                                                </div>
+                                                <div class="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                                                    <div class="flex items-start">
+                                                        <i class="fas fa-lightbulb text-amber-500 mt-0.5 mr-2"></i>
+                                                        <div>
+                                                            <p class="text-xs text-amber-700 font-medium">¿Cómo configurar horarios por día?</p>
+                                                            <ol class="text-xs text-amber-600 mt-1 list-decimal list-inside space-y-1">
+                                                                <li>Primero configura el <strong>Horario General</strong> arriba</li>
+                                                                <li>Selecciona los <strong>Días de trabajo</strong></li>
+                                                                <li>Haz clic en <strong>"Actualizar Asignaciones"</strong> (botón verde abajo)</li>
+                                                                <li>¡Listo! Podrás personalizar horarios por día</li>
+                                                            </ol>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                @endif
                                             </div>
 
                                             <!-- Previsualización del horario -->
@@ -798,7 +968,7 @@
                     const pivotId = modal.getAttribute('data-pivot-id');
                     
                     if (!rutaId || !pivotId || pivotId === 'null' || pivotId === '') {
-                        alert('❌ Error: No se encontró el ID de la asignación. Guarda primero la ruta.');
+                        showToast('warning', '¡Primero guarda la ruta!', 'Para configurar horarios específicos por día, primero debes guardar la ruta con el botón "Actualizar Asignaciones".', 5000);
                         return;
                     }
                     
@@ -884,14 +1054,14 @@
                             window.actualizarPreview(rutaId);
                             window.actualizarResumen();
                             window.cerrarModalHorarios();
-                            alert('✅ Horarios por día guardados correctamente');
+                            showToast('success', '¡Horarios guardados!', 'Los horarios específicos por día se han configurado correctamente.');
                         } else {
-                            alert('❌ ' + (data.message || 'Error al guardar los horarios'));
+                            showToast('error', 'Error al guardar', data.message || 'No se pudieron guardar los horarios. Intenta nuevamente.');
                         }
                     })
                     .catch(error => {
                         console.error('Error:', error);
-                        alert('❌ Error al guardar los horarios: ' + (error.message || 'Error desconocido'));
+                        showToast('error', 'Error de conexión', 'No se pudo conectar con el servidor. Verifica tu conexión e intenta nuevamente.');
                     })
                     .finally(() => {
                         btn.innerHTML = originalText;

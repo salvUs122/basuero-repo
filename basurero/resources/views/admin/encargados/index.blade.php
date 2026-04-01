@@ -249,15 +249,15 @@
         .then(data => {
             if (data.success) {
                 document.getElementById(`encargado-${encargadoAEliminar}`).remove();
-                alert(data.message);
+                showToast('success', '¡Encargado eliminado!', data.message || 'El encargado ha sido eliminado correctamente.');
                 if (document.querySelectorAll('tbody tr').length === 0) location.reload();
             } else {
-                alert(data.message);
+                showToast('error', 'No se pudo eliminar', data.message || 'Ocurrió un error al intentar eliminar el encargado.');
             }
             cerrarModalEliminar();
         })
         .catch(error => {
-            alert('Error al eliminar encargado');
+            showToast('error', 'Error de conexión', 'No se pudo conectar con el servidor. Intenta nuevamente.');
             cerrarModalEliminar();
         });
     });

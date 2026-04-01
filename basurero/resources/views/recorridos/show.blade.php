@@ -808,7 +808,7 @@
             const puntos = await response.json();
 
             if (!puntos || puntos.length === 0) {
-                alert('No hay puntos GPS para esta descarga');
+                showToast('info', 'Sin datos GPS', 'No hay puntos GPS registrados para esta descarga.');
                 return;
             }
 
@@ -854,7 +854,7 @@
 
         } catch (error) {
             console.error('Error cargando puntos de descarga:', error);
-            alert('Error al cargar los puntos de la descarga');
+            showToast('error', 'Error al cargar', 'No se pudieron cargar los puntos de la descarga.');
         }
     }
 
@@ -874,7 +874,7 @@
 
     function mostrarBotaderoEnMapa() {
         if (!botaderoLat || !botaderoLng) {
-            alert('No hay botadero configurado');
+            showToast('info', 'Sin botadero', 'No hay una ubicación de botadero configurada.');
             return;
         }
 
