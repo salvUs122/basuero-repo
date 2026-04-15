@@ -6,9 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'config.dart';
 import 'gps_background_service.dart';
+import 'time_utils.dart';
 
 // ========== DRAWER PERSONALIZADO ==========
 class RecorridoDrawer extends StatelessWidget {
@@ -515,16 +515,7 @@ class _DashboardConductorState extends State<DashboardConductor> {
   }
 
   String? _formatearHora(dynamic fecha) {
-    if (fecha == null) return null;
-    try {
-      final parsed = DateTime.parse(fecha.toString()).toLocal();
-      final hour = parsed.hour.toString().padLeft(2, '0');
-      final minute = parsed.minute.toString().padLeft(2, '0');
-      final second = parsed.second.toString().padLeft(2, '0');
-      return '$hour:$minute:$second';
-    } catch (_) {
-      return null;
-    }
+    return TimeUtils.formatHmsCochabamba(fecha);
   }
 
   // ========== MÉTODOS PARA DESCARGA AL BOTADERO ==========
@@ -679,7 +670,6 @@ class _DashboardConductorState extends State<DashboardConductor> {
         // Centrar mapa para mostrar posición actual y botadero
         if (tieneBotadero) {
           _centrarMapaEnDescarga();
-          _preguntarAbrirNavegacion();
         }
       } else {
         _mostrarSnackbar(data['message'] ?? 'Error al iniciar descarga');
@@ -688,91 +678,6 @@ class _DashboardConductorState extends State<DashboardConductor> {
       _mostrarSnackbar('Error: $e');
     } finally {
       setState(() => _isLoading = false);
-    }
-  }
-
-  /// Pregunta al usuario si quiere abrir Google Maps para navegar al botadero
-  Future<void> _preguntarAbrirNavegacion() async {
-    if (_puntoDescarga == null) return;
-
-    final abrirMaps = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade100,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.navigation, color: Colors.blue.shade600, size: 20),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(child: Text('Abrir navegación')),
-          ],
-        ),
-        content: Text(
-          '¿Quieres abrir Google Maps para navegar hacia "${_puntoDescarga!['nombre'] ?? 'el botadero'}"?'
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('NO, GRACIAS'),
-          ),
-          ElevatedButton.icon(
-            onPressed: () => Navigator.pop(context, true),
-            icon: const Icon(Icons.map, size: 18),
-            label: const Text('ABRIR MAPS'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              foregroundColor: Colors.white,
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (abrirMaps == true) {
-      _abrirGoogleMapsNavegacion();
-    }
-  }
-
-  /// Abre Google Maps con navegación hacia el punto de descarga
-  Future<void> _abrirGoogleMapsNavegacion() async {
-    if (_puntoDescarga == null) {
-      _mostrarSnackbar('No hay punto de descarga configurado para esta ruta');
-      return;
-    }
-
-    final lat = _puntoDescarga!['lat'];
-    final lng = _puntoDescarga!['lng'];
-    final nombre = _puntoDescarga!['nombre'] ?? 'Botadero';
-
-    // URL para Google Maps con navegación
-    final googleMapsUrl = Uri.parse(
-      'google.navigation:q=$lat,$lng&mode=d'
-    );
-
-    // URL alternativa para el navegador web
-    final webUrl = Uri.parse(
-      'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving'
-    );
-
-    try {
-      // Intentar abrir Google Maps primero
-      if (await canLaunchUrl(googleMapsUrl)) {
-        await launchUrl(googleMapsUrl);
-      } else if (await canLaunchUrl(webUrl)) {
-        // Si no puede abrir la app, abrir en navegador
-        await launchUrl(webUrl, mode: LaunchMode.externalApplication);
-      } else {
-        _mostrarSnackbar('No se puede abrir Google Maps');
-      }
-    } catch (e) {
-      debugPrint('Error abriendo Maps: $e');
-      _mostrarSnackbar('Error al abrir navegación');
     }
   }
 
@@ -1155,7 +1060,7 @@ class _DashboardConductorState extends State<DashboardConductor> {
             'horario': _horarioSeleccionado,
           };
           _horaInicioRecorrido = _formatearHora(
-            DateTime.now().toIso8601String(),
+            TimeUtils.nowIsoForCochabamba(),
           );
           // Establecer punto de descarga (botadero) desde la ruta
           _puntoDescarga = rutaSelec['punto_descarga'];
@@ -1462,7 +1367,7 @@ class _DashboardConductorState extends State<DashboardConductor> {
           'lng': position.longitude,
           'precision_m': position.accuracy,
           'velocidad_mps': position.speed,
-          'fecha_gps': DateTime.now().toIso8601String(),
+          'fecha_gps': TimeUtils.nowIsoForCochabamba(),
         }),
       ).timeout(const Duration(seconds: 10));
 
@@ -2582,6 +2487,14 @@ class _DashboardConductorState extends State<DashboardConductor> {
                   onPressed: _centrarEnBotadero,
                   tooltip: 'Ver Botadero',
                   child: const Icon(Icons.delete_rounded, color: Colors.white, size: 20),
+                ),
+                const SizedBox(height: 8),
+                FloatingActionButton.small(
+                  heroTag: 'btn_ruta',
+                  backgroundColor: Colors.indigo,
+                  onPressed: _centrarMapaEnRuta,
+                  tooltip: 'Centrar en la ruta',
+                  child: const Icon(Icons.route, color: Colors.white, size: 20),
                 ),
                 const SizedBox(height: 8),
                 FloatingActionButton.small(

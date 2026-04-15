@@ -157,12 +157,6 @@
             accent-color:#2563eb;
             cursor:pointer;
         }
-        .forgot-link{
-            font-size:.78rem;color:#2563eb;text-decoration:none;
-            transition:color .2s;
-        }
-        .forgot-link:hover{color:#1d4ed8;text-decoration:underline;}
-
         /* ── Error messages ── */
         .field-error{
             font-size:.75rem;color:#dc2626;

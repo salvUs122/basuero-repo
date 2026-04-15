@@ -49,17 +49,12 @@
             @enderror
         </div>
 
-        <!-- Recuérdame + Olvidó contraseña -->
+        <!-- Recuérdame -->
         <div class="remember-row">
             <label class="remember-label">
                 <input type="checkbox" name="remember">
                 Recordar sesión
             </label>
-            @if (Route::has('password.request'))
-                <a class="forgot-link" href="{{ route('password.request') }}">
-                    ¿Olvidó su contraseña?
-                </a>
-            @endif
         </div>
 
         <!-- Botón ingresar -->
